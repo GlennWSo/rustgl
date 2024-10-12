@@ -24,14 +24,33 @@
       pkgs.rustc
       pkgs.rust-analyzer
     ];
+    nativeRuntime = with pkgs; [
+      alsaLib
+      alsaLib.dev
+      udev
+      udev.dev
+      libGL
+      vulkan-loader
+      wayland
+      libxkbcommon
+      pkg-config
+      glib
+      gtk3
+    ];
+    LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath nativeRuntime;
+    car = pkgs.writeScriptBin "car" ''
+      LD_LIBRARY_PATH=${LD_LIBRARY_PATH} cargo $@
+    '';
   in {
     packages.${system} = {
       hello = pkgs.hello;
       default = self.packages.x86_64-linux.hello;
     };
     devShells.${system}.default = pkgs.mkShell {
-      buildInputs = [
+      buildInputs = with pkgs; [
         toolchain
+        rustfmt
+        car
       ];
     };
   };
