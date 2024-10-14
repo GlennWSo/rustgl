@@ -4,6 +4,20 @@ use glium::{
     DrawParameters, Frame, Surface,
 };
 
+const VERTEX_SHADER: &'static str = r#"
+    #version 150
+    in vec2 position;
+    // uniform vec2 u_resolution;
+
+    
+    void main() {
+
+        gl_Position = vec4(position, 0.0, 1.0);
+    }
+"#;
+
+const FRAGMENT_SHADER: &'static str = include_str!("circle.frag");
+
 #[derive(Copy, Clone)]
 pub struct Vertex {
     position: [f32; 2],
@@ -88,34 +102,3 @@ fn main() {
         };
     });
 }
-
-const VERTEX_SHADER: &'static str = r#"
-    #version 150
-    in vec2 position;
-    // uniform vec2 u_resolution;
-
-    
-    void main() {
-
-        gl_Position = vec4(position, 0.0, 1.0);
-    }
-"#;
-
-const FRAGMENT_SHADER: &'static str = r#"
-    #version 140
-    uniform vec2 u_resolution;
-    
-    void main() {
-        vec2 st = fract(gl_FragCoord.xy/u_resolution*1.0);
-        float maxd = max(u_resolution.x, u_resolution.y);
-        vec2 pos = vec2(0.5) - st;
-        pos.x *= u_resolution.x / u_resolution.y;
-        float r = length(pos);
-        float inside = step(0.5, r);
-        vec3 spectra = vec3(st, 1.0);
-        vec3 color = mix(vec3(0.0), spectra, inside);
-
-
-        gl_FragColor = vec4(color, 1.0);
-    }
-"#;
