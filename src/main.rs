@@ -52,9 +52,9 @@ fn main() {
                         [0.0, 0.0, s, 0.0],
                         [0.0, 0.0, 2.0, 1.0f32],
                     ];
-                    let size = window.inner_size();
+                    let size = frame.get_dimensions();
                     let uniforms = uniform! {
-                        u_resolution: [size.width as f32, size.height as f32],
+                        u_resolution: [size.0 as f32, size.1 as f32],
                     };
 
                     let draw_parameters = DrawParameters {
@@ -92,9 +92,11 @@ fn main() {
 const VERTEX_SHADER: &'static str = r#"
     #version 150
     in vec2 position;
+    // uniform vec2 u_resolution;
 
     
     void main() {
+
         gl_Position = vec4(position, 0.0, 1.0);
     }
 "#;
@@ -105,8 +107,11 @@ const FRAGMENT_SHADER: &'static str = r#"
     
     void main() {
         vec2 st = fract(gl_FragCoord.xy/u_resolution*1.0);
-        float r = length(vec2(0.5)-st);
-        float inside = step(0.3, r);
+        float maxd = max(u_resolution.x, u_resolution.y);
+        vec2 pos = vec2(0.5) - st;
+        pos.x *= u_resolution.x / u_resolution.y;
+        float r = length(pos);
+        float inside = step(0.5, r);
         vec3 spectra = vec3(st, 1.0);
         vec3 color = mix(vec3(0.0), spectra, inside);
 
