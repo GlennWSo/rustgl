@@ -6,13 +6,47 @@ use glium::{
 
 mod teapot;
 
-// #[derive(Copy, Clone, Debug)]
-// struct Vertex {
-//     position: [f32; 2],
-//     color: [f32; 3],
-// }
-// implement_vertex!(Vertex, position, color);
+/// Turning the coordinates relative to the scene into
+/// coordinates relative to the camera's position and rotation.
+fn view_matrix(position: &[f32; 3], direction: &[f32; 3], up: &[f32; 3]) -> [[f32; 4]; 4] {
+    let f = {
+        let f = direction;
+        let len = f[0] * f[0] + f[1] * f[1] + f[2] * f[2];
+        let len = len.sqrt();
+        [f[0] / len, f[1] / len, f[2] / len]
+    };
 
+    let s = [
+        up[1] * f[2] - up[2] * f[1],
+        up[2] * f[0] - up[0] * f[2],
+        up[0] * f[1] - up[1] * f[0],
+    ];
+
+    let s_norm = {
+        let len = s[0] * s[0] + s[1] * s[1] + s[2] * s[2];
+        let len = len.sqrt();
+        [s[0] / len, s[1] / len, s[2] / len]
+    };
+
+    let u = [
+        f[1] * s_norm[2] - f[2] * s_norm[1],
+        f[2] * s_norm[0] - f[0] * s_norm[2],
+        f[0] * s_norm[1] - f[1] * s_norm[0],
+    ];
+
+    let p = [
+        -position[0] * s_norm[0] - position[1] * s_norm[1] - position[2] * s_norm[2],
+        -position[0] * u[0] - position[1] * u[1] - position[2] * u[2],
+        -position[0] * f[0] - position[1] * f[1] - position[2] * f[2],
+    ];
+
+    [
+        [s_norm[0], u[0], f[0], 0.0],
+        [s_norm[1], u[1], f[1], 0.0],
+        [s_norm[2], u[2], f[2], 0.0],
+        [p[0], p[1], p[2], 1.0],
+    ]
+}
 fn perspective(frame: &Frame) -> [[f32; 4]; 4] {
     let (width, height) = frame.get_dimensions();
     let aspect_ratio = height as f32 / width as f32;
@@ -48,7 +82,7 @@ fn main() {
 
     let program =
         glium::Program::from_source(&display, VERTEX_SHADER, FRAGMENT_SHADER, None).unwrap();
-    let light = [-1.0, 0.4, 0.9f32];
+    let light = [1.4, 0.4, -0.7f32];
     let mut t: f32 = 0.0;
 
     #[allow(deprecated)]
@@ -64,16 +98,18 @@ fn main() {
                     // let c = t.cos();
                     // let s = t.sin();
                     let s = 0.01;
-                    let transform = [
+                    let model_transform = [
                         [s, 0.0, 0.0, 0.0],
                         [0.0, s, 0.0, 0.0],
                         [0.0, 0.0, s, 0.0],
                         [0.0, 0.0, 2.0, 1.0f32],
                     ];
+                    let view = view_matrix(&[2.0, -1.0, 1.0], &[-2.0, 1.0, 1.0], &[0.0, 1.0, 0.0]);
                     let uniforms = uniform! {
                         u_light: light,
-                        transform: transform,
+                        model: model_transform,
                         perspective: perspective(&frame),
+                        view: view,
                     };
 
                     let draw_parameters = DrawParameters {
@@ -110,27 +146,39 @@ const VERTEX_SHADER: &'static str = r#"
     in vec3 position;
     in vec3 normal;
     out vec3 v_normal;
+    out vec3 v_position;
 
-    uniform mat4 transform;
+    uniform mat4 model;
+    uniform mat4 view;
     uniform mat4 perspective;
     
     void main() {
         // vertex_color = color;
-        v_normal = normalize(transpose(inverse(mat3(transform))) * normal);
-        gl_Position = perspective*transform * vec4(position, 1.0);
+        v_normal = transpose(inverse(mat3(model))) * normal;
+        gl_Position = perspective*view*model * vec4(position, 1.0);
+        v_position = gl_Position.xyz / gl_Position.w;
     }
 "#;
 
 const FRAGMENT_SHADER: &'static str = r#"
     #version 140
     in vec3 v_normal;
+    in vec3 v_position;
+
     out vec4 color;
     uniform vec3 u_light;
 
+
+    const vec3 ambient_color = vec3(0.2, 0.0, 0.0);
+    const vec3 diffuse_color = vec3(0.6, 0.0, 0.0);
+    const vec3 specular_color = vec3(1.0, 1.0, 1.0);
+    
     void main() {
-        float light = dot(u_light, v_normal);
-        vec3 full_color = vec3(1.0, 0.0, 0.0);
-        vec3 dark_color = mix(vec3(0.0), full_color, 0.6);
-        color = vec4(mix(dark_color, full_color, light), 1.0);
-    }
+        float diffuse = max(dot(normalize(u_light), normalize(v_normal)), 0.0);
+
+        vec3 camera_dir = normalize(-v_position);
+        vec3 half_direction = normalize(normalize(u_light) + camera_dir);
+        float specular = pow(max(dot(half_direction, normalize(v_normal)), 0.0), 16.0);
+
+        color = vec4(ambient_color + diffuse * diffuse_color + specular * specular_color, 1.0);    }
 "#;
