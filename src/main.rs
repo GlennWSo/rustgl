@@ -31,7 +31,6 @@ fn main() {
 
     let program =
         glium::Program::from_source(&display, VERTEX_SHADER, FRAGMENT_SHADER, None).unwrap();
-    let light = [1.4, 0.4, -0.7f32];
     let mut t: f32 = 0.0;
 
     #[allow(deprecated)]
@@ -53,7 +52,10 @@ fn main() {
                         [0.0, 0.0, s, 0.0],
                         [0.0, 0.0, 2.0, 1.0f32],
                     ];
-                    let uniforms = uniform! {};
+                    let size = window.inner_size();
+                    let uniforms = uniform! {
+                        u_resolution: [size.width as f32, size.height as f32],
+                    };
 
                     let draw_parameters = DrawParameters {
                         // depth: glium::Depth {
@@ -99,8 +101,16 @@ const VERTEX_SHADER: &'static str = r#"
 
 const FRAGMENT_SHADER: &'static str = r#"
     #version 140
+    uniform vec2 u_resolution;
     
     void main() {
-        gl_FragColor = vec4(0.0, 0.0, 1.0, 1.0);
+        vec2 st = fract(gl_FragCoord.xy/u_resolution*1.0);
+        float r = length(vec2(0.5)-st);
+        float inside = step(0.3, r);
+        vec3 spectra = vec3(st, 1.0);
+        vec3 color = mix(vec3(0.0), spectra, inside);
+
+
+        gl_FragColor = vec4(color, 1.0);
     }
 "#;

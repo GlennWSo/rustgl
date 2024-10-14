@@ -2,6 +2,7 @@
 name = "rustgl"
 version = "0.1.0"
 edition = "2021"
+default-run = "rustgl"
 
 [dependencies]
 glium = "0.36.0"
