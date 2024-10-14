@@ -7,14 +7,9 @@ use glium::{
 #[derive(Copy, Clone, Debug)]
 struct Vertex {
     position: [f32; 2],
+    color: [f32; 3],
 }
-implement_vertex!(Vertex, position);
-
-impl From<[f32; 2]> for Vertex {
-    fn from(value: [f32; 2]) -> Self {
-        Self { position: value }
-    }
-}
+implement_vertex!(Vertex, position, color);
 
 fn main() {
     let event_loop = glium::winit::event_loop::EventLoop::builder()
@@ -23,11 +18,19 @@ fn main() {
     let (window, display) = glium::backend::glutin::SimpleWindowBuilder::new().build(&event_loop);
 
     let shape: [Vertex; 3] = [
-        [-0.5, -0.5], // vertex1
-        [-0.0, 0.5],
-        [0.5, -0.25],
-    ]
-    .map(|v| v.into());
+        Vertex {
+            position: [-0.5, -0.5],
+            color: [1.0, 0.0, 0.0],
+        },
+        Vertex {
+            position: [-0.0, 0.5],
+            color: [0.0, 1.0, 0.0],
+        },
+        Vertex {
+            position: [0.5, -0.25],
+            color: [0.0, 0.0, 1.0],
+        },
+    ];
     let vertex_buff = glium::VertexBuffer::new(&display, &shape).unwrap();
     let indices = glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList);
 
@@ -40,7 +43,7 @@ fn main() {
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => window_target.exit(),
                 WindowEvent::RedrawRequested => {
-                    t += 0.02;
+                    t += 0.01;
                     // let x = t.sin() * 0.5;
                     let c = t.cos();
                     let s = t.sin();
@@ -79,19 +82,23 @@ fn main() {
 const VERTEX_SHADER: &'static str = r#"
     #version 140
     in vec2 position;
+    in vec3 color;
+    out vec3 vertex_color;
 
     uniform mat4 transform;
     
     void main() {
+        vertex_color = color;
         gl_Position = transform * vec4(position, 0.0, 1.0);
     }
 "#;
 
 const FRAGMENT_SHADER: &'static str = r#"
     #version 140
+    in vec3 vertex_color;
     out vec4 color;
 
     void main() {
-        color = vec4(1.0, 0.0, 0.0, 1.0);
+        color = vec4(vertex_color, 1.0);
     }
 "#;
