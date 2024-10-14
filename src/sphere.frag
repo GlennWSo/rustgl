@@ -34,17 +34,17 @@ void main() {
     // camera matrix
     vec3 ww = normalize( ta - rayOrigin);
     vec3 uu = normalize( cross(ww,vec3(0.0,1.0,0.0) ) );
-    vec3 vv = normalize( cros
+    vec3 vv = normalize( cross(uu, ww));
 
     // pixel coordinate
-    vec2 p = (2.0*fragCoord-u_resolution.xy)/u_resolution.y;
+    vec2 p = (2.0*gl_FragCoord.xy-u_resolution.xy)/u_resolution.y;
 
     // raymarch
     vec3 ray_dir = normalize( p.x*uu + p.y*vv + 1.5*ww );
     const float tmax = 5.0;
     float t = 0.0;
     for (int i =0; i<256; i++) {
-        vec3 pos = ro + t*ray_dir;
+        vec3 pos = rayOrigin + t*ray_dir;
         float h = sdf(pos);
         if (h < 0.0001 || t>tmax) break;
         t += h;
@@ -53,7 +53,7 @@ void main() {
     // shading/lighting	
     vec3 color = vec3(0.0);
     if( t<tmax ) {
-        color = vec3(0.0, 0.0, 1.0) 
+        color = vec3(0.0, 0.0, 1.0) ;
     }
     
 

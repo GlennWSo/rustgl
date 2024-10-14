@@ -16,7 +16,7 @@ const VERTEX_SHADER: &'static str = r#"
     }
 "#;
 
-const FRAGMENT_SHADER: &'static str = include_str!("circle.frag");
+const FRAGMENT_SHADER: &'static str = include_str!("sphere.frag");
 
 #[derive(Copy, Clone)]
 pub struct Vertex {
