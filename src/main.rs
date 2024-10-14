@@ -20,7 +20,7 @@ fn main() {
     let (window, display) = glium::backend::glutin::SimpleWindowBuilder::new().build(&event_loop);
 
     let positions = glium::VertexBuffer::new(&display, &teapot::VERTICES).unwrap();
-    // let normals = glium::VertexBuffer::new(&display, &teapot::NORMALS).unwrap();
+    let normals = glium::VertexBuffer::new(&display, &teapot::NORMALS).unwrap();
     let indices = glium::IndexBuffer::new(
         &display,
         glium::index::PrimitiveType::TrianglesList,
@@ -30,6 +30,7 @@ fn main() {
 
     let program =
         glium::Program::from_source(&display, VERTEX_SHADER, FRAGMENT_SHADER, None).unwrap();
+    let light = [-1.0, 0.4, 0.9f32];
     let mut t: f32 = 0.0;
     #[allow(deprecated)]
     let _ = event_loop.run(move |event, window_target| {
@@ -43,6 +44,7 @@ fn main() {
                     // let s = t.sin();
                     let s = 0.01;
                     let uniforms = uniform! {
+                        u_light: light,
                         transform: [
                             [s, 0.0, 0.0, 0.0],
                             [0.0, s, 0.0, 0.0],
@@ -56,7 +58,7 @@ fn main() {
 
                         frame
                             .draw(
-                                &positions,
+                                (&positions, &normals),
                                 &indices,
                                 &program,
                                 &uniforms,
@@ -77,6 +79,10 @@ fn main() {
 const VERTEX_SHADER: &'static str = r#"
     #version 150
     in vec3 position;
+    in vec3 normal;
+
+    out vec3 v_normal;
+
     // in vec3 color;
     // out vec3 vertex_color;
 
@@ -84,16 +90,21 @@ const VERTEX_SHADER: &'static str = r#"
     
     void main() {
         // vertex_color = color;
+        v_normal = normalize(transpose(inverse(mat3(transform))) * normal);
         gl_Position = transform * vec4(position, 1.0);
     }
 "#;
 
 const FRAGMENT_SHADER: &'static str = r#"
-    #version 150
-    // in vec3 vertex_color;
+    #version 140
+    in vec3 v_normal;
     out vec4 color;
+    uniform vec3 u_light;
 
     void main() {
-        color = vec4(1.0, 0.0, 0.0, 1.0);
+        float light = dot(u_light, v_normal);
+        vec3 full_color = vec3(1.0, 0.0, 0.0);
+        vec3 dark_color = mix(vec3(0.0), full_color, 0.6);
+        color = vec4(mix(dark_color, full_color, light), 1.0);
     }
 "#;
