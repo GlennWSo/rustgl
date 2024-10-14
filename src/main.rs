@@ -41,11 +41,13 @@ fn main() {
                 WindowEvent::CloseRequested => window_target.exit(),
                 WindowEvent::RedrawRequested => {
                     t += 0.02;
-                    let x = t.sin() * 0.5;
+                    // let x = t.sin() * 0.5;
+                    let c = t.cos();
+                    let s = t.sin();
                     let uniforms = uniform! {
                         transform: [
-                            [1.0 + x, 0.0, 0.0, 0.0],
-                            [0.0, 1.0, 0.0, 0.0],
+                            [c , s, 0.0, 0.0],
+                            [-s, c, 0.0, 0.0],
                             [0.0, 0.0, 1.0, 0.0],
                             [0.0, 0.0, 0.0, 1.0f32],
                         ]
