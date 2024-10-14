@@ -51,6 +51,8 @@
         toolchain
         rustfmt
         car
+        glslviewer
+        glsl_analyzer
       ];
     };
   };
