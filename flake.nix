@@ -25,15 +25,15 @@
       pkgs.rust-analyzer
     ];
     nativeRuntime = with pkgs; [
-      alsaLib
-      alsaLib.dev
-      udev
-      udev.dev
-      libGL
-      vulkan-loader
       wayland
       libxkbcommon
+      udev.dev
+      vulkan-loader
+
       pkg-config
+      alsaLib
+      alsaLib.dev
+      libGL
       glib
       gtk3
     ];
