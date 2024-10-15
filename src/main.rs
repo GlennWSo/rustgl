@@ -46,11 +46,16 @@ fn main() {
     let program =
         glium::Program::from_source(&display, VERTEX_SHADER, FRAGMENT_SHADER, None).unwrap();
     let mut t: f32 = 0.0;
+    let mut mouse = [0.0, 0_f32];
 
     #[allow(deprecated)]
     let _ = event_loop.run(move |event, window_target| {
         match event {
             Event::WindowEvent { event, .. } => match event {
+                WindowEvent::CursorMoved { position, .. } => {
+                    mouse[0] = position.x as f32;
+                    mouse[1] = position.y as f32;
+                }
                 WindowEvent::CloseRequested => window_target.exit(),
                 WindowEvent::RedrawRequested => {
                     let mut frame = display.draw();
@@ -69,6 +74,8 @@ fn main() {
                     let size = frame.get_dimensions();
                     let uniforms = uniform! {
                         u_resolution: [size.0 as f32, size.1 as f32],
+                        u_time: t,
+                        u_mouse: mouse,
                     };
 
                     let draw_parameters = DrawParameters {
