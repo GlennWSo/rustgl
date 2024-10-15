@@ -2,6 +2,7 @@
 uniform vec2 u_resolution;
 uniform float u_time;
 uniform vec2 u_mouse;
+uniform mat4 u_camera;
 
 out vec4 fragColor;
 
@@ -56,15 +57,16 @@ vec3 calcNormal( in vec3 pos )
 void main() {
 
     // camera movement	
-	float an = sin(u_mouse.x/u_resolution.x*3.0);
+	float an = u_mouse.x/u_resolution.x*3.14*2.0;
+	float elv = u_mouse.y/u_resolution.y*3.14*2.0;
 
 	// col0 = vec3(cos(an), 0.0 , -sin(an));
 	// col1 = vec3(0.0, 1.0 , 0.0);
 	// col0 = vec3(cos(an), 0.0, sin(an));
  //    rot_y = mat3(col0, col1,col2);
 
-	
-	vec3 rayOrigin = vec3( 1.0*cos(an), 0.0, 1.0*sin(an) );
+	const float r = 1.0;
+	vec3 rayOrigin = normalize(vec3( r*cos(an), r*cos(elv), r*sin(an) ));
     vec3 ta = vec3( 0.0, 0.0, 0.0 );
     // camera matrix
     vec3 ww = normalize( ta - rayOrigin);

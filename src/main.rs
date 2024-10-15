@@ -4,6 +4,12 @@ use glium::{
     DrawParameters, Frame, Surface,
 };
 
+use nalgebra::{self as na, Point3, Vector3};
+use rustgl::perspective;
+
+type Mat4 = na::Matrix4<f32>;
+type Vec3 = na::Vector3<f32>;
+
 const VERTEX_SHADER: &'static str = r#"
     #version 150
     in vec2 position;
@@ -47,6 +53,8 @@ fn main() {
         glium::Program::from_source(&display, VERTEX_SHADER, FRAGMENT_SHADER, None).unwrap();
     let mut t: f32 = 0.0;
     let mut mouse = [0.0, 0_f32];
+    // let near = 1.0;
+    // let diag = Vec3::new(near, near, 0.0);
 
     #[allow(deprecated)]
     let _ = event_loop.run(move |event, window_target| {
@@ -65,17 +73,26 @@ fn main() {
                     // let c = t.cos();
                     // let s = t.sin();
                     let s = 0.01;
-                    let model_transform = [
-                        [s, 0.0, 0.0, 0.0],
-                        [0.0, s, 0.0, 0.0],
-                        [0.0, 0.0, s, 0.0],
-                        [0.0, 0.0, 2.0, 1.0f32],
-                    ];
-                    let size = frame.get_dimensions();
+                    let dims = frame.get_dimensions();
+                    let camera_k: Mat4 = perspective(dims.0, dims.1).into();
+                    let camera_origin = Point3::new(1.0, 0.0, 1_f32);
+                    let camera_target = Point3::new(0.0, 0.0, 0_f32);
+                    let up = &Vector3::y();
+                    let camera_rt = Mat4::look_at_rh(&camera_origin, &camera_target, up);
+                    // let model_transform = [
+                    //     [s, 0.0, 0.0, 0.0],
+                    //     [0.0, s, 0.0, 0.0],
+                    //     [0.0, 0.0, s, 0.0],
+                    //     [0.0, 0.0, 2.0, 1.0f32],
+                    // ];
+                    let camera_inv = (camera_k * camera_rt).try_inverse().unwrap();
+                    let raw_camera = camera_inv.data.0;
+
                     let uniforms = uniform! {
-                        u_resolution: [size.0 as f32, size.1 as f32],
+                        u_resolution: [dims.0 as f32, dims.1 as f32],
                         u_time: t,
                         u_mouse: mouse,
+                        u_camera: raw_camera,
                     };
 
                     let draw_parameters = DrawParameters {

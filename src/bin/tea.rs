@@ -3,7 +3,7 @@ use glium::{
     winit::event::{Event, WindowEvent},
     DrawParameters, Frame, Surface,
 };
-use rustgl::teapot;
+use rustgl::{perspective, teapot};
 
 /// Turning the coordinates relative to the scene into
 /// coordinates relative to the camera's position and rotation.
@@ -44,23 +44,6 @@ fn view_matrix(position: &[f32; 3], direction: &[f32; 3], up: &[f32; 3]) -> [[f3
         [s_norm[1], u[1], f[1], 0.0],
         [s_norm[2], u[2], f[2], 0.0],
         [p[0], p[1], p[2], 1.0],
-    ]
-}
-fn perspective(frame: &Frame) -> [[f32; 4]; 4] {
-    let (width, height) = frame.get_dimensions();
-    let aspect_ratio = height as f32 / width as f32;
-
-    let fov: f32 = 3.141592 / 3.0;
-    let zfar = 1024.0;
-    let znear = 0.1;
-
-    let f = 1.0 / (fov / 2.0).tan();
-
-    [
-        [f * aspect_ratio, 0.0, 0.0, 0.0],
-        [0.0, f, 0.0, 0.0],
-        [0.0, 0.0, (zfar + znear) / (zfar - znear), 1.0],
-        [0.0, 0.0, -(2.0 * zfar * znear) / (zfar - znear), 0.0],
     ]
 }
 
@@ -104,10 +87,11 @@ fn main() {
                         [0.0, 0.0, 2.0, 1.0f32],
                     ];
                     let view = view_matrix(&[2.0, -1.0, 1.0], &[-2.0, 1.0, 1.0], &[0.0, 1.0, 0.0]);
+                    let dims = frame.get_dimensions();
                     let uniforms = uniform! {
                         u_light: light,
                         model: model_transform,
-                        perspective: perspective(&frame),
+                        perspective: perspective(dims.0, dims.1),
                         view: view,
                     };
 
