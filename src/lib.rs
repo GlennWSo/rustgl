@@ -97,7 +97,7 @@ impl<'a> State<'a> {
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
+                entry_point: "vs_rainbow",
                 compilation_options: PipelineCompilationOptions::default(),
                 buffers: &[],
             },
