@@ -1,18 +1,66 @@
-pub mod teapot;
+use winit::{
+    error::EventLoopError,
+    event::*,
+    event_loop::EventLoop,
+    keyboard::{KeyCode, PhysicalKey},
+    window::WindowBuilder,
+};
 
-pub fn perspective(width: u32, height: u32) -> [[f32; 4]; 4] {
-    let aspect_ratio = height as f32 / width as f32;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
 
-    let fov: f32 = 3.141592 / 3.0;
-    let zfar = 1024.0;
-    let znear = 0.1;
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
+pub fn run() {
+    cfg_if::cfg_if! {
+        if #[cfg(target_arch = "wasm32")] {
+            std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+            console_log::init_with_level(log::Level::Warn).expect("Couldn't initialize logger");
+        } else {
+            env_logger::init();
+        }
+    }
 
-    let f = 1.0 / (fov / 2.0).tan();
+    let event_loop = EventLoop::new().unwrap();
+    let window = WindowBuilder::new().build(&event_loop).unwrap();
 
-    [
-        [f * aspect_ratio, 0.0, 0.0, 0.0],
-        [0.0, f, 0.0, 0.0],
-        [0.0, 0.0, (zfar + znear) / (zfar - znear), 1.0],
-        [0.0, 0.0, -(2.0 * zfar * znear) / (zfar - znear), 0.0],
-    ]
+    #[cfg(target_arch = "wasm32")]
+    {
+        // Winit prevents sizing with CSS, so we have to set
+        // the size manually when on web.
+        use winit::dpi::PhysicalSize;
+        let _ = window.request_inner_size(PhysicalSize::new(450, 400));
+
+        use winit::platform::web::WindowExtWebSys;
+        web_sys::window()
+            .and_then(|win| win.document())
+            .and_then(|doc| {
+                let dst = doc.get_element_by_id("wasm-example")?;
+                let canvas = web_sys::Element::from(window.canvas()?);
+                dst.append_child(&canvas).ok()?;
+                Some(())
+            })
+            .expect("Couldn't append canvas to document body.");
+    }
+
+    event_loop
+        .run(move |event, control_flow| match event {
+            Event::WindowEvent {
+                ref event,
+                window_id,
+            } if window_id == window.id() => match event {
+                WindowEvent::CloseRequested
+                | WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            state: ElementState::Pressed,
+                            physical_key: PhysicalKey::Code(KeyCode::Escape),
+                            ..
+                        },
+                    ..
+                } => control_flow.exit(),
+                _ => {}
+            },
+            _ => {}
+        })
+        .unwrap()
 }

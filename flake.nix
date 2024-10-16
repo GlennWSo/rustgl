@@ -23,6 +23,7 @@
       pkgs.cargo
       pkgs.rustc
       pkgs.rust-analyzer
+      pkgs.fenix.targets.wasm32-unknown-unknown.latest.rust-std
     ];
     nativeRuntime = with pkgs; [
       wayland
@@ -53,6 +54,9 @@
         car
         glslviewer
         glsl_analyzer
+        wasm-bindgen-cli
+        lld
+        static-server
       ];
     };
   };
