@@ -53,6 +53,7 @@
 
     wasmArtifacts = craneLib.buildDepsOnly {
       src = wasmSrc;
+      CARGO_PROFILE = "dev";
       buildInputs = wasmInputs;
       # version = "0.1.0";
 
@@ -61,6 +62,7 @@
     };
     staticWebsite = craneLib.buildPackage {
       src = wasmSrc;
+      CARGO_PROFILE = "dev";
       cargoArtifacts = wasmArtifacts;
       buildInputs = wasmInputs;
       cargoExtraArgs = "--target wasm32-unknown-unknown";

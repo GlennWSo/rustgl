@@ -1,4 +1,7 @@
-use wgpu::{PipelineCompilationOptions, RenderPipeline};
+use log::info;
+use wgpu::{
+    PipelineCompilationOptions, PipelineLayout, RenderPipeline, ShaderModule, TextureFormat,
+};
 use winit::{
     error::EventLoopError,
     event::*,
@@ -16,7 +19,49 @@ struct State<'a> {
     // it gets dropped after it as the surface contains
     // unsafe references to the window's resources.
     // window: &'a Window,
-    render_pipeline: wgpu::RenderPipeline,
+    active_pipeline: RenderPipeline,
+    bench_pipeline: RenderPipeline,
+}
+
+fn mk_pipeline<'a>(
+    shader: &'a ShaderModule,
+    layout: &'a PipelineLayout,
+    color_targets: &'a [Option<wgpu::ColorTargetState>],
+    vs_entry: &'static str,
+) -> wgpu::RenderPipelineDescriptor<'a> {
+    wgpu::RenderPipelineDescriptor {
+        label: Some("Awsome Pipe"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: vs_entry,
+            compilation_options: PipelineCompilationOptions::default(),
+            buffers: &[],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: "fs_main",
+            compilation_options: PipelineCompilationOptions::default(),
+            targets: color_targets,
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: None,
+            polygon_mode: wgpu::PolygonMode::Fill,
+            unclipped_depth: false,
+            conservative: false,
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState {
+            count: 1,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        multiview: None,
+        cache: None,
+    }
 }
 
 impl<'a> State<'a> {
@@ -34,6 +79,7 @@ impl<'a> State<'a> {
             ..Default::default()
         });
         let surface = instance.create_surface(window).unwrap();
+        info!("{:#?}", &surface);
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -71,20 +117,21 @@ impl<'a> State<'a> {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
-            width: size.width,
-            height: size.height,
+            width: size.width.max(10),
+            height: size.height.max(10),
             present_mode: surface_caps.present_modes[0],
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
+        info!("{:#?}", &config);
         let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[],
-                push_constant_ranges: &[],
-            });
+
+        let render_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Render Pipeline Layout"),
+            bind_group_layouts: &[],
+            push_constant_ranges: &[],
+        });
 
         let color_target = [Some(wgpu::ColorTargetState {
             // 4.
@@ -92,41 +139,13 @@ impl<'a> State<'a> {
             blend: Some(wgpu::BlendState::REPLACE),
             write_mask: wgpu::ColorWrites::ALL,
         })];
-        let pipeline_desc = wgpu::RenderPipelineDescriptor {
-            label: Some("Awsome Pipe"),
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_rainbow",
-                compilation_options: PipelineCompilationOptions::default(),
-                buffers: &[],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                compilation_options: PipelineCompilationOptions::default(),
-                targets: &color_target,
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-            cache: None,
-        };
 
-        let render_pipeline = device.create_render_pipeline(&pipeline_desc);
+        let brown_desc = mk_pipeline(&shader, &render_layout, &color_target, "vs_brown");
+        let brown_pipeline = device.create_render_pipeline(&brown_desc);
+
+        let rainbow_desc = mk_pipeline(&shader, &render_layout, &color_target, "vs_rainbow");
+        let rainbow_pipeline = device.create_render_pipeline(&rainbow_desc);
+
         Self {
             // window,
             surface,
@@ -134,7 +153,8 @@ impl<'a> State<'a> {
             queue,
             config,
             size,
-            render_pipeline,
+            active_pipeline: brown_pipeline,
+            bench_pipeline: rainbow_pipeline,
         }
     }
 
@@ -152,7 +172,28 @@ impl<'a> State<'a> {
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
-        false
+        let res = match event {
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        logical_key,
+                        state: ElementState::Released,
+                        ..
+                    },
+                ..
+            } => match logical_key {
+                winit::keyboard::Key::Named(named_key) => match named_key {
+                    winit::keyboard::NamedKey::Space => {
+                        std::mem::swap(&mut self.bench_pipeline, &mut self.active_pipeline);
+                        true
+                    }
+                    _ => false,
+                },
+                _ => false,
+            },
+            _ => false,
+        };
+        dbg!(res)
     }
 
     fn update(&mut self) {}
@@ -186,7 +227,7 @@ impl<'a> State<'a> {
             occlusion_query_set: None,
             timestamp_writes: None,
         });
-        render_pass.set_pipeline(&self.render_pipeline); // 2.
+        render_pass.set_pipeline(&self.active_pipeline); // 2.
         render_pass.draw(0..3, 0..1); // 3.
         drop(render_pass);
         // submit will accept anything that implements IntoIter
@@ -204,11 +245,12 @@ fn window_setup() -> (EventLoop<()>, Window) {
     cfg_if::cfg_if! {
         if #[cfg(target_arch = "wasm32")] {
             std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-            console_log::init_with_level(log::Level::Warn).expect("Couldn't initialize logger");
+            console_log::init_with_level(log::Level::Debug).expect("Couldn't initialize logger");
         } else {
             env_logger::init();
         }
     }
+    info!("hello world!");
 
     let event_loop = EventLoop::new().unwrap();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
@@ -261,6 +303,7 @@ pub async fn run() {
                         } => control_flow.exit(),
                         WindowEvent::Resized(new_size) => state.resize(*new_size),
                         WindowEvent::RedrawRequested => {
+                            info!("redraw requested");
                             state.update();
                             match state.render() {
                                 Ok(_) => {}
@@ -269,6 +312,7 @@ pub async fn run() {
                                 // The system is out of memory, we should probably quit
                                 Err(wgpu::SurfaceError::OutOfMemory) => {
                                     control_flow.exit();
+                                    // control_flow.exit();
                                 }
                                 // All other errors (Outdated, Timeout) should be resolved by the next frame
                                 Err(e) => eprintln!("{:?}", e),
