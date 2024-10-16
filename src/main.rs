@@ -1,5 +1,6 @@
+use pollster::block_on;
 use rustgl::run;
 
 fn main() {
-    run()
+    block_on(run());
 }
