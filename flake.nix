@@ -51,7 +51,15 @@
       wasm-bindgen-cli
     ];
 
-    wasmArtifacts = craneLib.buildDepsOnly {
+    webArtifacts = craneLib.buildDepsOnly {
+      src = wasmSrc;
+      buildInputs = wasmInputs;
+      # version = "0.1.0";
+
+      cargoExtraArgs = "--target wasm32-unknown-unknown";
+      doCheck = false;
+    };
+    devArtifacts = craneLib.buildDepsOnly {
       src = wasmSrc;
       CARGO_PROFILE = "dev";
       buildInputs = wasmInputs;
@@ -60,10 +68,9 @@
       cargoExtraArgs = "--target wasm32-unknown-unknown";
       doCheck = false;
     };
-    staticWebsite = craneLib.buildPackage {
+    webSite = craneLib.buildPackage {
       src = wasmSrc;
-      CARGO_PROFILE = "dev";
-      cargoArtifacts = wasmArtifacts;
+      cargoArtifacts = webArtifacts;
       buildInputs = wasmInputs;
       cargoExtraArgs = "--target wasm32-unknown-unknown";
       doCheck = false;
@@ -76,7 +83,26 @@
 
         wasm-bindgen --no-typescript --target web \
           --out-dir . \
-          ${staticWebsite.pname}.wasm
+          ${devSite.pname}.wasm
+      '';
+    };
+    devSite = craneLib.buildPackage {
+      src = wasmSrc;
+      CARGO_PROFILE = "dev";
+      cargoArtifacts = devArtifacts;
+      buildInputs = wasmInputs;
+      cargoExtraArgs = "--target wasm32-unknown-unknown";
+      doCheck = false;
+      postFixup = ''
+        # mkdir $out/bin/wasm
+        # cp -r assets $out/bin/wasm/
+
+        cd $out/bin
+        cp -r ${./www}/* .
+
+        wasm-bindgen --no-typescript --target web \
+          --out-dir . \
+          ${devSite.pname}.wasm
       '';
     };
 
@@ -101,8 +127,9 @@
     packages.${system} = {
       hello = pkgs.hello;
       default = self.packages.x86_64-linux.hello;
-      wasmDeps = wasmArtifacts;
-      web = staticWebsite;
+      wasmDeps = devArtifacts;
+      devSite = devSite;
+      web = webSite;
     };
     devShells.${system}.default = pkgs.mkShell {
       buildInputs = with pkgs; [
