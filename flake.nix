@@ -32,16 +32,18 @@
     ];
     fs = pkgs.lib.fileset;
     files = fs.unions [
-      # ./.cargo
-      # ./assets
       ./src
-      ./www
       ./Cargo.lock
       ./Cargo.toml
     ];
-    src = fs.toSource {
+
+    wasmFiles = fs.unions [
+      ./www
+      files
+    ];
+    wasmSrc = fs.toSource {
       root = ./.;
-      fileset = files;
+      fileset = wasmFiles;
     };
     craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
 
@@ -51,12 +53,30 @@
     ];
 
     wasmArtifacts = craneLib.buildDepsOnly {
-      inherit src;
+      src = wasmSrc;
       buildInputs = wasmInputs;
-      version = "0.1.0";
+      # version = "0.1.0";
 
       cargoExtraArgs = "--target wasm32-unknown-unknown";
       doCheck = false;
+    };
+    staticWebsite = craneLib.buildPackage {
+      src = wasmSrc;
+      cargoArtifacts = wasmArtifacts;
+      buildInputs = wasmInputs;
+      cargoExtraArgs = "--target wasm32-unknown-unknown";
+      doCheck = false;
+      postFixup = ''
+        # mkdir $out/bin/wasm
+        # cp -r assets $out/bin/wasm/
+
+        cd $out/bin
+        cp -r ${./www}/* .
+
+        wasm-bindgen --no-typescript --target web \
+          --out-dir . \
+          ${staticWebsite.pname}.wasm
+      '';
     };
 
     nixRuntime = with pkgs; [
@@ -81,6 +101,7 @@
       hello = pkgs.hello;
       default = self.packages.x86_64-linux.hello;
       wasmDeps = wasmArtifacts;
+      web = staticWebsite;
     };
     devShells.${system}.default = pkgs.mkShell {
       buildInputs = with pkgs; [
