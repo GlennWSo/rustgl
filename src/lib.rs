@@ -79,7 +79,6 @@ impl<'a> State<'a> {
             ..Default::default()
         });
         let surface = instance.create_surface(window).unwrap();
-        info!("{:#?}", &surface);
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -117,14 +116,16 @@ impl<'a> State<'a> {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
-            width: size.width.max(10),
-            height: size.height.max(10),
+            width: size.width,
+            height: size.height,
             present_mode: surface_caps.present_modes[0],
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
         info!("{:#?}", &config);
+        // surface.configure(&device, &config);
+        info!("{:#?}", &surface);
         let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
 
         let render_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -172,6 +173,10 @@ impl<'a> State<'a> {
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
+        if self.config.width == 0 || self.config.height == 0 {
+            info!("ignoring input until window size has been configured");
+            return false;
+        }
         let res = match event {
             WindowEvent::KeyboardInput {
                 event:
@@ -193,7 +198,7 @@ impl<'a> State<'a> {
             },
             _ => false,
         };
-        dbg!(res)
+        res
     }
 
     fn update(&mut self) {}
@@ -260,7 +265,7 @@ fn window_setup() -> (EventLoop<()>, Window) {
         // Winit prevents sizing with CSS, so we have to set
         // the size manually when on web.
         use winit::dpi::PhysicalSize;
-        let _ = window.request_inner_size(PhysicalSize::new(450, 400));
+        let size = window.request_inner_size(PhysicalSize::new(450, 400));
 
         use winit::platform::web::WindowExtWebSys;
         web_sys::window()
@@ -303,7 +308,10 @@ pub async fn run() {
                         } => control_flow.exit(),
                         WindowEvent::Resized(new_size) => state.resize(*new_size),
                         WindowEvent::RedrawRequested => {
-                            info!("redraw requested");
+                            if state.config.width == 0 {
+                                info!("config size not yet set");
+                                return;
+                            };
                             state.update();
                             match state.render() {
                                 Ok(_) => {}
