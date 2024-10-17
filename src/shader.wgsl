@@ -1,4 +1,10 @@
 // Vertex shader
+struct CameraUniform {
+    transform: mat4x4<f32>,
+};
+
+@group(1) @binding(0) // 1.
+var<uniform> camera: CameraUniform;
 
 struct VertexInput {
     /// model coord
@@ -15,7 +21,7 @@ struct VertexOutput {
 fn vs_main(model: VertexInput) -> VertexOutput {
     var out: VertexOutput;
     out.tex_coords = vec2f(model.tex_coords.x, 1.0 - model.tex_coords.y);
-    out.clip_position = vec4f(model.position, 1.0);
+    out.clip_position = camera.transform * vec4f(model.position, 1.0);
     return out;
 }
 
