@@ -31,6 +31,7 @@
     ];
     fs = pkgs.lib.fileset;
     files = fs.unions [
+      ./assets
       ./src
       ./Cargo.lock
       ./Cargo.toml
