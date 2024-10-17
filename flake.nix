@@ -124,6 +124,15 @@
     car = pkgs.writeScriptBin "car" ''
       LD_LIBRARY_PATH=${LD_LIBRARY_PATH} cargo $@
     '';
+    devServe = pkgs.writeScriptBin "devrun" ''
+      car build --target wasm32-unknown-unknown
+      cp target/wasm32-unknown-unknown/debug/rustgl.wasm tmp
+      wasm-bindgen --no-typescript --target web --out-dir tmp tmp/rustgl.wasm
+      static-server tmp
+    '';
+    nixServe = pkgs.writeScriptBin "serve" ''
+      ${pkgs.static-server}/bin/static-server ${webSite}/bin/
+    '';
   in {
     packages.${system} = {
       hello = pkgs.hello;
@@ -131,6 +140,7 @@
       wasmDeps = devArtifacts;
       devSite = devSite;
       web = webSite;
+      serve = nixServe;
     };
     devShells.${system}.default = pkgs.mkShell {
       buildInputs = with pkgs; [
@@ -143,6 +153,7 @@
         glslviewer
         car
         static-server
+        devServe
       ];
     };
   };
