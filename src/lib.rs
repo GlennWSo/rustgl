@@ -5,8 +5,8 @@ use wgpu::{
 use winit::{
     error::EventLoopError,
     event::*,
-    event_loop::{ControlFlow, EventLoop},
-    keyboard::{KeyCode, PhysicalKey},
+    event_loop::{ControlFlow, EventLoop, EventLoopWindowTarget},
+    keyboard::{Key, KeyCode, NamedKey, PhysicalKey},
     window::{Window, WindowBuilder},
 };
 struct State<'a> {
@@ -21,7 +21,6 @@ struct State<'a> {
     // window: &'a Window,
     active_pipeline: RenderPipeline,
     bench_pipeline: RenderPipeline,
-    dirty: bool,
 }
 
 fn mk_pipeline<'a>(
@@ -157,7 +156,6 @@ impl<'a> State<'a> {
             size,
             active_pipeline: brown_pipeline,
             bench_pipeline: rainbow_pipeline,
-            dirty: false,
         }
     }
 
@@ -174,37 +172,49 @@ impl<'a> State<'a> {
         }
     }
 
+    /// returns true if mutation happens
     fn input(&mut self, event: &WindowEvent) -> bool {
-        if self.config.width == 0 || self.config.height == 0 {
-            info!("ignoring input until window size has been configured");
-            return false;
-        }
-        let res = match event {
+        match event {
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
-                        logical_key,
-                        state: ElementState::Released,
+                        logical_key: Key::Named(NamedKey::Space),
+                        state: ElementState::Pressed,
                         ..
                     },
                 ..
-            } => match logical_key {
-                winit::keyboard::Key::Named(named_key) => match named_key {
-                    winit::keyboard::NamedKey::Space => {
-                        std::mem::swap(&mut self.bench_pipeline, &mut self.active_pipeline);
-                        self.dirty = true;
-                        true
-                    }
-                    _ => false,
-                },
-                _ => false,
-            },
+            } => {
+                std::mem::swap(&mut self.active_pipeline, &mut self.bench_pipeline);
+                true
+            }
             _ => false,
-        };
-        res
+        }
     }
 
     fn update(&mut self) {}
+
+    fn redraw(&mut self, ctrl_flow: &EventLoopWindowTarget<()>) {
+        {
+            if self.config.width == 0 || self.config.height == 0 {
+                info!("ignoring input until window size has been configured");
+                return;
+            }
+            // info!("redraw requested");
+            self.update();
+            match self.render() {
+                Ok(_) => {}
+                // Reconfigure the surface if lost
+                Err(wgpu::SurfaceError::Lost) => self.resize(self.size),
+                // The system is out of memory, we should probably quit
+                Err(wgpu::SurfaceError::OutOfMemory) => {
+                    ctrl_flow.exit();
+                    // control_flow.exit();
+                }
+                // All other errors (Outdated, Timeout) should be resolved by the next frame
+                Err(e) => eprintln!("{:?}", e),
+            }
+        }
+    }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
@@ -293,57 +303,32 @@ pub async fn run() {
 
     event_loop
         .run(move |event, control_flow| {
-            if state.dirty {
-                if state.config.width == 0 {
-                    info!("config size not yet set");
-                    return;
-                };
-                state.update();
-                state.render().unwrap();
-                state.dirty = false;
-            }
+            let Event::WindowEvent { window_id, event } = event else {
+                return;
+            };
+
             match event {
-                Event::WindowEvent {
-                    ref event,
-                    window_id,
-                } if window_id == window.id() => {
-                    if !state.input(event) {
-                        match event {
-                            WindowEvent::CloseRequested
-                            | WindowEvent::KeyboardInput {
-                                event:
-                                    KeyEvent {
-                                        state: ElementState::Pressed,
-                                        physical_key: PhysicalKey::Code(KeyCode::Escape),
-                                        ..
-                                    },
-                                ..
-                            } => control_flow.exit(),
-                            WindowEvent::Resized(new_size) => state.resize(*new_size),
-                            WindowEvent::RedrawRequested => {
-                                if state.config.width == 0 {
-                                    info!("config size not yet set");
-                                    return;
-                                };
-                                info!("redraw requested");
-                                state.update();
-                                match state.render() {
-                                    Ok(_) => {}
-                                    // Reconfigure the surface if lost
-                                    Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
-                                    // The system is out of memory, we should probably quit
-                                    Err(wgpu::SurfaceError::OutOfMemory) => {
-                                        control_flow.exit();
-                                        // control_flow.exit();
-                                    }
-                                    // All other errors (Outdated, Timeout) should be resolved by the next frame
-                                    Err(e) => eprintln!("{:?}", e),
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
+                WindowEvent::Resized(new_size) => {
+                    info!("window resized to: {:#?}", new_size);
+                    state.resize(new_size)
                 }
+                WindowEvent::RedrawRequested => {
+                    state.redraw(control_flow);
+                }
+                WindowEvent::CloseRequested
+                | WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            logical_key: Key::Named(NamedKey::Escape),
+                            state: ElementState::Pressed,
+                            ..
+                        },
+                    ..
+                } => {
+                    info!("Closing, bye...");
+                    control_flow.exit()
+                }
+                event if state.input(&event) => state.redraw(control_flow),
                 _ => {}
             }
         })
