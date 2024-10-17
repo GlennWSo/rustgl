@@ -2,7 +2,7 @@ use std::mem::size_of;
 
 use log::info;
 use wgpu::{
-    util::{BufferInitDescriptor, DeviceExt},
+    util::{BufferInitDescriptor, DeviceExt, RenderEncoder},
     BufferUsages, PipelineCompilationOptions, PipelineLayout, RenderPipeline, ShaderModule,
     VertexAttribute, VertexBufferLayout,
 };
@@ -12,12 +12,23 @@ use winit::{
     keyboard::{Key, NamedKey},
     window::{Window, WindowBuilder},
 };
+type Position = [f32; 3];
+type Color = [f32; 3];
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::NoUninit)]
 struct Vertex {
-    position: [f32; 3],
-    color: [f32; 3],
+    position: Position,
+    color: Color,
+}
+
+impl From<(Position, Color)> for Vertex {
+    fn from(value: (Position, Color)) -> Self {
+        Vertex {
+            position: value.0,
+            color: value.1,
+        }
+    }
 }
 
 impl Vertex {
@@ -31,21 +42,21 @@ impl Vertex {
     }
 }
 
+#[rustfmt::skip]
 const VERTICES: &[Vertex] = &[
-    Vertex {
-        position: [0.0, 0.5, 0.0],
-        color: [1.0, 1.0, 0.0],
-    },
-    Vertex {
-        position: [-0.5, -0.5, 0.0],
-        color: [0.0, 1.0, 0.0],
-    },
-    Vertex {
-        position: [0.5, -0.5, 0.0],
-        color: [0.0, 0.0, 1.0],
-    },
+    Vertex { position: [-0.0868241, 0.49240386, 0.0],   color: [0.5, 0.0, 0.5], }, // A
+    Vertex { position: [-0.49513406, 0.06958647, 0.0],  color: [0.5, 0.0, 0.5], }, // B
+    Vertex { position: [-0.21918549, -0.44939706, 0.0], color: [0.5, 0.0, 0.5], }, // C
+    Vertex { position: [0.35966998, -0.3473291, 0.0],   color: [0.5, 0.0, 0.5], }, // D
+    Vertex { position: [0.44147372, 0.2347359, 0.0],    color: [0.5, 0.0, 0.5], }, // E
 ];
 
+#[rustfmt::skip]
+const INDICES: &[u16] = &[
+    0, 1, 4,
+    1, 2, 4,
+    2, 3, 4
+];
 struct State<'a> {
     surface: wgpu::Surface<'a>,
     device: wgpu::Device,
@@ -55,6 +66,7 @@ struct State<'a> {
     active_pipeline: RenderPipeline,
     bench_pipeline: RenderPipeline,
     vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
 }
 
 fn mk_pipeline<'a>(
@@ -195,6 +207,12 @@ impl<'a> State<'a> {
             usage: BufferUsages::VERTEX,
         };
         let vertex_buffer = device.create_buffer_init(&buffer_desc);
+        let index_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Index Buffer"),
+            contents: bytemuck::cast_slice(INDICES),
+            usage: BufferUsages::INDEX,
+        });
+
         Self {
             // window,
             surface,
@@ -205,6 +223,7 @@ impl<'a> State<'a> {
             active_pipeline: brown_pipeline,
             bench_pipeline: rainbow_pipeline,
             vertex_buffer,
+            index_buffer,
         }
     }
 
@@ -269,6 +288,10 @@ impl<'a> State<'a> {
         }
     }
 
+    fn n_inds(&self) -> u32 {
+        INDICES.len() as u32
+    }
+
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor {
@@ -300,7 +323,8 @@ impl<'a> State<'a> {
         });
         render_pass.set_pipeline(&self.active_pipeline); // 2.
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.draw(0..self.n_verts(), 0..1); // 3.
+        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.draw_indexed(0..self.n_inds(), 0, 0..1); // 3.
         drop(render_pass);
         // submit will accept anything that implements IntoIter
         self.queue.submit(std::iter::once(encoder.finish()));
