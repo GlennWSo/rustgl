@@ -1,4 +1,8 @@
 use nalgebra::{self as na, Matrix4, Vector3};
+use winit::{
+    event::{ElementState, KeyEvent, WindowEvent},
+    keyboard::{KeyCode, PhysicalKey},
+};
 
 pub type Point3 = na::Point3<f32>;
 pub type Vec3 = Vector3<f32>;
@@ -53,5 +57,47 @@ impl Default for CameraUniform {
 impl CameraUniform {
     pub fn update(&mut self, camera: &PerspectiveCamera) {
         self.view_proj = camera.view_projection().into()
+    }
+}
+
+struct CameraController {
+    speed: f32,
+    is_forward_pressed: bool,
+    is_backward_pressed: bool,
+    is_left_pressed: bool,
+    is_right_pressed: bool,
+}
+
+impl CameraController {
+    fn new(speed: f32) -> Self {
+        Self {
+            speed,
+            is_forward_pressed: false,
+            is_backward_pressed: false,
+            is_left_pressed: false,
+            is_right_pressed: false,
+        }
+    }
+    /// returns true if mutation happens
+    fn process_events(&mut self, event: &WindowEvent) -> bool {
+        let WindowEvent::KeyboardInput {
+            event:
+                KeyEvent {
+                    physical_key: PhysicalKey::Code(key),
+                    state: ElementState::Pressed,
+                    ..
+                },
+            ..
+        } = event
+        else {
+            return false;
+        };
+        match key {
+            KeyCode::ArrowUp | KeyCode::KeyW => {
+                self.is_forward_pressed = true;
+                true
+            }
+            _ => false,
+        }
     }
 }
