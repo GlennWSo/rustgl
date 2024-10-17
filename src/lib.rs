@@ -4,7 +4,7 @@ use image::GenericImageView as _;
 use log::info;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt, RenderEncoder},
-    BufferUsages, Extent3d, PipelineCompilationOptions, PipelineLayout, RenderPipeline,
+    BindGroup, BufferUsages, Extent3d, PipelineCompilationOptions, PipelineLayout, RenderPipeline,
     ShaderModule, TextureDescriptor, TextureFormat, TextureUsages, VertexAttribute,
     VertexBufferLayout,
 };
@@ -15,20 +15,20 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 type Position = [f32; 3];
-type Color = [f32; 3];
+type TexCoord = [f32; 2];
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::NoUninit)]
 struct Vertex {
     position: Position,
-    color: Color,
+    tex_coord: TexCoord,
 }
 
-impl From<(Position, Color)> for Vertex {
-    fn from(value: (Position, Color)) -> Self {
+impl From<(Position, TexCoord)> for Vertex {
+    fn from(value: (Position, TexCoord)) -> Self {
         Vertex {
             position: value.0,
-            color: value.1,
+            tex_coord: value.1,
         }
     }
 }
@@ -46,11 +46,11 @@ impl Vertex {
 
 #[rustfmt::skip]
 const VERTICES: &[Vertex] = &[
-    Vertex { position: [-0.0868241,  0.49240386, 0.0],  color: [0.5, 0.0, 0.5], }, // A
-    Vertex { position: [-0.49513406, 0.06958647, 0.0],  color: [0.5, 0.0, 0.5], }, // B
-    Vertex { position: [-0.21918549, -0.44939706, 0.0], color: [0.5, 0.0, 0.5], }, // C
-    Vertex { position: [0.35966998,  -0.3473291, 0.0],  color: [0.5, 0.0, 0.5], }, // D
-    Vertex { position: [0.44147372,  0.2347359, 0.0],   color: [0.5, 0.0, 0.5], }, // E
+    Vertex { position: [-0.0868241,   0.49240386, 0.0], tex_coord: [0.4131759,    0.99240386], }, // A
+    Vertex { position: [-0.49513406,  0.06958647, 0.0], tex_coord: [0.0048659444, 0.56958647], }, // B
+    Vertex { position: [-0.21918549, -0.44939706, 0.0], tex_coord: [0.28081453,   0.05060294], }, // C
+    Vertex { position: [0.35966998,   -0.3473291, 0.0], tex_coord: [0.85967,       0.1526709], }, // D
+    Vertex { position: [0.44147372,    0.2347359, 0.0], tex_coord: [0.9414737,     0.7347359], }, // E
 ];
 
 #[rustfmt::skip]
@@ -66,9 +66,10 @@ struct State<'a> {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     active_pipeline: RenderPipeline,
-    bench_pipeline: RenderPipeline,
+    // bench_pipeline: RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
+    diffuse_bind_group: BindGroup,
 }
 
 fn mk_pipeline<'a>(
@@ -191,7 +192,7 @@ impl<'a> State<'a> {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: TextureFormat::Rgba8UnormSrgb,
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
             view_formats: &[],
         };
         let diffuse_texture = device.create_texture(&texture_desc);
@@ -214,11 +215,60 @@ impl<'a> State<'a> {
             },
             texture_size,
         );
+        let diffuse_texture_view =
+            diffuse_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let diffuse_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        // This should match the filterable field of the
+                        // corresponding Texture entry above.
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("texture_bind_group_layout"),
+            });
+        let diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&diffuse_texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&diffuse_sampler),
+                },
+            ],
+            label: Some("diffuse_bind_group"),
+        });
 
         let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
         let render_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[],
+            bind_group_layouts: &[&texture_bind_group_layout],
             push_constant_ranges: &[],
         });
 
@@ -230,17 +280,8 @@ impl<'a> State<'a> {
         })];
 
         let buffers = &[Vertex::desc()];
-        let brown_desc = mk_pipeline(&shader, &render_layout, &color_target, "vs_brown", buffers);
-        let brown_pipeline = device.create_render_pipeline(&brown_desc);
-
-        let rainbow_desc = mk_pipeline(
-            &shader,
-            &render_layout,
-            &color_target,
-            "vs_rainbow",
-            buffers,
-        );
-        let rainbow_pipeline = device.create_render_pipeline(&rainbow_desc);
+        let brown_desc = mk_pipeline(&shader, &render_layout, &color_target, "vs_main", buffers);
+        let main_pipeline = device.create_render_pipeline(&brown_desc);
 
         let buffer_desc = BufferInitDescriptor {
             label: Some("Vertex Buffer"),
@@ -261,10 +302,11 @@ impl<'a> State<'a> {
             queue,
             config,
             size,
-            active_pipeline: brown_pipeline,
-            bench_pipeline: rainbow_pipeline,
+            active_pipeline: main_pipeline,
+            // bench_pipeline: rainbow_pipeline,
             vertex_buffer,
             index_buffer,
+            diffuse_bind_group,
         }
     }
 
@@ -293,7 +335,7 @@ impl<'a> State<'a> {
                     },
                 ..
             } => {
-                std::mem::swap(&mut self.active_pipeline, &mut self.bench_pipeline);
+                // std::mem::swap(&mut self.active_pipeline, &mut self.bench_pipeline);
                 true
             }
             _ => false,
@@ -362,15 +404,15 @@ impl<'a> State<'a> {
             occlusion_query_set: None,
             timestamp_writes: None,
         });
-        render_pass.set_pipeline(&self.active_pipeline); // 2.
+        render_pass.set_pipeline(&self.active_pipeline);
+        render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
         render_pass.draw_indexed(0..self.n_inds(), 0, 0..1); // 3.
         drop(render_pass);
-        // submit will accept anything that implements IntoIter
+
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-
         Ok(())
     }
 }
