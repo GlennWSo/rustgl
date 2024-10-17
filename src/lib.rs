@@ -1,10 +1,12 @@
 use std::mem::size_of;
 
+use image::GenericImageView as _;
 use log::info;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt, RenderEncoder},
-    BufferUsages, PipelineCompilationOptions, PipelineLayout, RenderPipeline, ShaderModule,
-    VertexAttribute, VertexBufferLayout,
+    BufferUsages, Extent3d, PipelineCompilationOptions, PipelineLayout, RenderPipeline,
+    ShaderModule, TextureDescriptor, TextureFormat, TextureUsages, VertexAttribute,
+    VertexBufferLayout,
 };
 use winit::{
     event::*,
@@ -170,11 +172,50 @@ impl<'a> State<'a> {
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
-        info!("{:#?}", &config);
         // surface.configure(&device, &config);
-        info!("{:#?}", &surface);
-        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
 
+        let diffuse_bytes = include_bytes!("../assets/happy-tree.png");
+        let diffuse_image = image::load_from_memory(diffuse_bytes).unwrap();
+        let diffuse_rgba = diffuse_image.to_rgba8();
+        let img_dims = diffuse_image.dimensions();
+
+        let texture_size = Extent3d {
+            width: img_dims.0,
+            height: img_dims.1,
+            depth_or_array_layers: 1,
+        };
+        let texture_desc = TextureDescriptor {
+            label: None,
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC,
+            view_formats: &[],
+        };
+        let diffuse_texture = device.create_texture(&texture_desc);
+
+        queue.write_texture(
+            // Tells wgpu where to copy the pixel data
+            wgpu::ImageCopyTexture {
+                texture: &diffuse_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            // The actual pixel data
+            &diffuse_rgba,
+            // The layout of the texture
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * img_dims.0),
+                rows_per_image: Some(img_dims.1),
+            },
+            texture_size,
+        );
+
+        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
         let render_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
             bind_group_layouts: &[],
