@@ -1,26 +1,60 @@
+use std::mem::size_of;
+
 use log::info;
 use wgpu::{
-    PipelineCompilationOptions, PipelineLayout, RenderPipeline, ShaderModule, TextureFormat,
+    util::{BufferInitDescriptor, DeviceExt},
+    BufferUsages, PipelineCompilationOptions, PipelineLayout, RenderPipeline, ShaderModule,
+    VertexAttribute, VertexBufferLayout,
 };
 use winit::{
-    error::EventLoopError,
     event::*,
-    event_loop::{ControlFlow, EventLoop, EventLoopWindowTarget},
-    keyboard::{Key, KeyCode, NamedKey, PhysicalKey},
+    event_loop::{EventLoop, EventLoopWindowTarget},
+    keyboard::{Key, NamedKey},
     window::{Window, WindowBuilder},
 };
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, bytemuck::NoUninit)]
+struct Vertex {
+    position: [f32; 3],
+    color: [f32; 3],
+}
+
+impl Vertex {
+    const ATTRS: [VertexAttribute; 2] = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: size_of::<Vertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &Self::ATTRS,
+        }
+    }
+}
+
+const VERTICES: &[Vertex] = &[
+    Vertex {
+        position: [0.0, 0.5, 0.0],
+        color: [1.0, 1.0, 0.0],
+    },
+    Vertex {
+        position: [-0.5, -0.5, 0.0],
+        color: [0.0, 1.0, 0.0],
+    },
+    Vertex {
+        position: [0.5, -0.5, 0.0],
+        color: [0.0, 0.0, 1.0],
+    },
+];
+
 struct State<'a> {
     surface: wgpu::Surface<'a>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
-    // The window must be declared after the surface so
-    // it gets dropped after it as the surface contains
-    // unsafe references to the window's resources.
-    // window: &'a Window,
     active_pipeline: RenderPipeline,
     bench_pipeline: RenderPipeline,
+    vertex_buffer: wgpu::Buffer,
 }
 
 fn mk_pipeline<'a>(
@@ -28,6 +62,7 @@ fn mk_pipeline<'a>(
     layout: &'a PipelineLayout,
     color_targets: &'a [Option<wgpu::ColorTargetState>],
     vs_entry: &'static str,
+    buffers: &'a [VertexBufferLayout<'a>],
 ) -> wgpu::RenderPipelineDescriptor<'a> {
     wgpu::RenderPipelineDescriptor {
         label: Some("Awsome Pipe"),
@@ -36,7 +71,7 @@ fn mk_pipeline<'a>(
             module: &shader,
             entry_point: vs_entry,
             compilation_options: PipelineCompilationOptions::default(),
-            buffers: &[],
+            buffers,
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
@@ -141,12 +176,25 @@ impl<'a> State<'a> {
             write_mask: wgpu::ColorWrites::ALL,
         })];
 
-        let brown_desc = mk_pipeline(&shader, &render_layout, &color_target, "vs_brown");
+        let buffers = &[Vertex::desc()];
+        let brown_desc = mk_pipeline(&shader, &render_layout, &color_target, "vs_brown", buffers);
         let brown_pipeline = device.create_render_pipeline(&brown_desc);
 
-        let rainbow_desc = mk_pipeline(&shader, &render_layout, &color_target, "vs_rainbow");
+        let rainbow_desc = mk_pipeline(
+            &shader,
+            &render_layout,
+            &color_target,
+            "vs_rainbow",
+            buffers,
+        );
         let rainbow_pipeline = device.create_render_pipeline(&rainbow_desc);
 
+        let buffer_desc = BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(VERTICES),
+            usage: BufferUsages::VERTEX,
+        };
+        let vertex_buffer = device.create_buffer_init(&buffer_desc);
         Self {
             // window,
             surface,
@@ -156,6 +204,7 @@ impl<'a> State<'a> {
             size,
             active_pipeline: brown_pipeline,
             bench_pipeline: rainbow_pipeline,
+            vertex_buffer,
         }
     }
 
@@ -192,6 +241,10 @@ impl<'a> State<'a> {
     }
 
     fn update(&mut self) {}
+
+    fn n_verts(&self) -> u32 {
+        VERTICES.len() as u32
+    }
 
     fn redraw(&mut self, ctrl_flow: &EventLoopWindowTarget<()>) {
         {
@@ -246,7 +299,8 @@ impl<'a> State<'a> {
             timestamp_writes: None,
         });
         render_pass.set_pipeline(&self.active_pipeline); // 2.
-        render_pass.draw(0..3, 0..1); // 3.
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        render_pass.draw(0..self.n_verts(), 0..1); // 3.
         drop(render_pass);
         // submit will accept anything that implements IntoIter
         self.queue.submit(std::iter::once(encoder.finish()));
