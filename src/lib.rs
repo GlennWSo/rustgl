@@ -9,8 +9,8 @@ use log::info;
 use screen::Screen;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt as _},
-    BindGroup, BufferUsages, PipelineCompilationOptions, PipelineLayout, RenderPipeline,
-    ShaderModule, VertexAttribute, VertexBufferLayout,
+    BindGroup, BindGroupLayout, BufferUsages, PipelineCompilationOptions, PipelineLayout,
+    RenderPipeline, ShaderModule, Texture, VertexAttribute, VertexBufferLayout,
 };
 use winit::{
     event::*,
@@ -64,6 +64,8 @@ const INDICES: &[u16] = &[
     2, 3, 4
 ];
 
+struct TextureBundle {}
+
 struct State<'a> {
     screen: Screen<'a>,
     // surface: wgpu::Surface<'a>,
@@ -87,7 +89,7 @@ fn mk_pipeline<'a>(
     layout: &'a PipelineLayout,
     color_targets: &'a [Option<wgpu::ColorTargetState>],
     vs_entry: &'static str,
-    buffers: &'a [VertexBufferLayout<'a>],
+    vertex_layout: &'a [VertexBufferLayout<'a>],
 ) -> wgpu::RenderPipelineDescriptor<'a> {
     wgpu::RenderPipelineDescriptor {
         label: Some("Awsome Pipe"),
@@ -96,7 +98,7 @@ fn mk_pipeline<'a>(
             module: &shader,
             entry_point: vs_entry,
             compilation_options: PipelineCompilationOptions::default(),
-            buffers,
+            buffers: vertex_layout,
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
@@ -129,57 +131,8 @@ impl<'a> State<'a> {
     async fn new(window: &'a Window) -> State<'a> {
         // surface.configure(&device, &config);
         let screen = Screen::new(window).await;
-
-        let diffuse_bytes = include_bytes!("../assets/happy-tree.png");
-        let diffuse_texture = texture::Texture::from_bytes(
-            &screen.device,
-            &screen.queue,
-            diffuse_bytes,
-            "happy-tree",
-        )
-        .unwrap(); // CHANGED!
-
-        let texture_bind_group_layout =
-            screen
-                .device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                multisampled: false,
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            // This should match the filterable field of the
-                            // corresponding Texture entry above.
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: None,
-                        },
-                    ],
-                    label: Some("texture_bind_group_layout"),
-                });
-
-        let diffuse_bind_group = screen.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &texture_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&diffuse_texture.view), // CHANGED!
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler), // CHANGED!
-                },
-            ],
-            label: Some("diffuse_bind_group"),
-        });
+        let (diffuse_texture, diffuse_bind_group, texture_bind_group_layout) =
+            texture::config_texture(&screen);
 
         let shader = screen
             .device
@@ -191,8 +144,6 @@ impl<'a> State<'a> {
             blend: Some(wgpu::BlendState::REPLACE),
             write_mask: wgpu::ColorWrites::ALL,
         })];
-
-        let buffers = &[Vertex::desc()];
 
         let buffer_desc = BufferInitDescriptor {
             label: Some("Vertex Buffer"),
@@ -248,16 +199,23 @@ impl<'a> State<'a> {
             }],
             label: Some("camera_bind_group"),
         });
+        let pipeline_layout =
+            screen
+                .device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Render Pipeline Layout"),
+                    bind_group_layouts: &[&texture_bind_group_layout, &camera_bind_group_layout],
+                    push_constant_ranges: &[],
+                });
 
-        let render_layout = screen
-            .device
-            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&texture_bind_group_layout, &camera_bind_group_layout],
-                push_constant_ranges: &[],
-            });
-
-        let main_desc = mk_pipeline(&shader, &render_layout, &color_target, "vs_main", buffers);
+        let vertex_layout = &[Vertex::desc()];
+        let main_desc = mk_pipeline(
+            &shader,
+            &pipeline_layout,
+            &color_target,
+            "vs_main",
+            vertex_layout,
+        );
         let main_pipeline = screen.device.create_render_pipeline(&main_desc);
 
         Self {
