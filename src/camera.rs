@@ -104,6 +104,13 @@ impl CameraController {
             _ => 0.0,
         };
         self.camera.eye += dr * normal;
+        let tangent = normal.cross(&self.camera.up);
+        let da = match (self.is_left, self.is_right) {
+            (true, false) => step,
+            (false, true) => -step,
+            _ => 0.0,
+        };
+        self.camera.eye += tangent * da;
     }
 
     /// returns true if mutation happens
