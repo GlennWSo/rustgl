@@ -8,6 +8,7 @@ pub type Point3 = na::Point3<f32>;
 pub type Vec3 = Vector3<f32>;
 pub type Mat4 = Matrix4<f32>;
 
+#[derive(Debug)]
 pub struct PerspectiveCamera {
     pub eye: Point3,
     pub target: Point3,
@@ -60,31 +61,58 @@ impl CameraUniform {
     }
 }
 
-struct CameraController {
+#[derive(Debug)]
+pub struct CameraController {
     speed: f32,
-    is_forward_pressed: bool,
-    is_backward_pressed: bool,
-    is_left_pressed: bool,
-    is_right_pressed: bool,
+    /// is this input set
+    is_up: bool,
+    /// is this input set
+    is_down: bool,
+    /// is this input set
+    is_left: bool,
+    /// is this input set
+    is_right: bool,
+    pub camera: PerspectiveCamera,
 }
 
 impl CameraController {
-    fn new(speed: f32) -> Self {
+    pub fn new(speed: f32, camera: PerspectiveCamera) -> Self {
         Self {
             speed,
-            is_forward_pressed: false,
-            is_backward_pressed: false,
-            is_left_pressed: false,
-            is_right_pressed: false,
+            is_up: false,
+            is_down: false,
+            is_left: false,
+            is_right: false,
+            camera,
         }
     }
+
+    fn is_unset(&mut self) -> bool {
+        ![self.is_up, self.is_down, self.is_left, self.is_right]
+            .into_iter()
+            .any(|e| e)
+    }
+    pub fn update_camera(&mut self, time_step: f32) {
+        if self.is_unset() {
+            return;
+        }
+        let step = self.speed * time_step;
+        let normal = (self.camera.target - self.camera.eye).normalize();
+        let dr = match (self.is_up, self.is_down) {
+            (true, false) => step,
+            (_, true) => -step,
+            _ => 0.0,
+        };
+        self.camera.eye += dr * normal;
+    }
+
     /// returns true if mutation happens
-    fn process_events(&mut self, event: &WindowEvent) -> bool {
+    pub fn process_events(&mut self, event: &WindowEvent) -> bool {
         let WindowEvent::KeyboardInput {
             event:
                 KeyEvent {
                     physical_key: PhysicalKey::Code(key),
-                    state: ElementState::Pressed,
+                    state,
                     ..
                 },
             ..
@@ -92,9 +120,25 @@ impl CameraController {
         else {
             return false;
         };
+        let pressed = match state {
+            ElementState::Pressed => true,
+            ElementState::Released => false,
+        };
         match key {
             KeyCode::ArrowUp | KeyCode::KeyW => {
-                self.is_forward_pressed = true;
+                self.is_up = pressed;
+                true
+            }
+            KeyCode::ArrowLeft | KeyCode::KeyA => {
+                self.is_left = pressed;
+                true
+            }
+            KeyCode::ArrowRight | KeyCode::KeyD => {
+                self.is_right = pressed;
+                true
+            }
+            KeyCode::ArrowDown | KeyCode::KeyS => {
+                self.is_down = pressed;
                 true
             }
             _ => false,

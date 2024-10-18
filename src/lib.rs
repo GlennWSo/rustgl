@@ -5,7 +5,7 @@ use std::mem::size_of;
 
 use nalgebra::SimdValue as _;
 
-use camera::{CameraUniform, Mat4, PerspectiveCamera, Point3, Vec3};
+use camera::{CameraController, CameraUniform, Mat4, PerspectiveCamera, Point3, Vec3};
 use image::GenericImageView as _;
 use log::info;
 use wgpu::{
@@ -77,7 +77,7 @@ struct State<'a> {
     index_buffer: wgpu::Buffer,
     diffuse_bind_group: BindGroup,
     diffuse_texture: texture::Texture,
-    camera: PerspectiveCamera,
+    camera_ctrl: CameraController,
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
@@ -264,6 +264,7 @@ impl<'a> State<'a> {
         };
         let mut camera_uniform = CameraUniform::default();
         camera_uniform.update(&camera);
+        let camera_ctrl = CameraController::new(0.2, camera);
         let camera_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Camera Buffer"),
             contents: bytemuck::cast_slice(&[camera_uniform]),
@@ -315,7 +316,7 @@ impl<'a> State<'a> {
             index_buffer,
             diffuse_bind_group,
             diffuse_texture,
-            camera,
+            camera_ctrl,
             camera_uniform,
             camera_buffer,
             camera_bind_group,
@@ -337,24 +338,18 @@ impl<'a> State<'a> {
 
     /// returns true if mutation happens
     fn input(&mut self, event: &WindowEvent) -> bool {
-        match event {
-            WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        logical_key: Key::Named(NamedKey::Space),
-                        state: ElementState::Pressed,
-                        ..
-                    },
-                ..
-            } => {
-                // std::mem::swap(&mut self.active_pipeline, &mut self.bench_pipeline);
-                true
-            }
-            _ => false,
-        }
+        self.camera_ctrl.process_events(event)
     }
 
-    fn update(&mut self) {}
+    fn update(&mut self, dt: f32) {
+        self.camera_ctrl.update_camera(dt);
+        self.camera_uniform.update(&self.camera_ctrl.camera);
+        self.queue.write_buffer(
+            &self.camera_buffer,
+            0,
+            bytemuck::cast_slice(&[self.camera_uniform]),
+        );
+    }
 
     fn n_verts(&self) -> u32 {
         VERTICES.len() as u32
@@ -367,7 +362,7 @@ impl<'a> State<'a> {
                 return;
             }
             // info!("redraw requested");
-            self.update();
+            self.update(1.0);
             match self.render() {
                 Ok(_) => {}
                 // Reconfigure the surface if lost
@@ -502,7 +497,11 @@ pub async fn run() {
                     info!("Closing, bye...");
                     control_flow.exit()
                 }
-                event if state.input(&event) => state.redraw(control_flow),
+                event if state.input(&event) => {
+                    dbg!(event);
+                    dbg!(&state.camera_ctrl);
+                    state.redraw(control_flow)
+                }
                 _ => {}
             }
         })
