@@ -10,9 +10,9 @@ use image::GenericImageView as _;
 use log::info;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt, RenderEncoder},
-    BindGroup, BufferUsages, Extent3d, PipelineCompilationOptions, PipelineLayout, RenderPipeline,
-    ShaderModule, TextureDescriptor, TextureFormat, TextureUsages, VertexAttribute,
-    VertexBufferLayout,
+    Adapter, BindGroup, BufferUsages, Extent3d, PipelineCompilationOptions, PipelineLayout,
+    RenderPipeline, ShaderModule, Surface, SurfaceConfiguration, TextureDescriptor, TextureFormat,
+    TextureUsages, VertexAttribute, VertexBufferLayout,
 };
 use winit::{
     event::*,
@@ -65,12 +65,101 @@ const INDICES: &[u16] = &[
     1, 2, 4,
     2, 3, 4
 ];
+
+pub struct Screen<'a> {
+    pub surface: wgpu::Surface<'a>,
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+    pub config: wgpu::SurfaceConfiguration,
+    pub size: winit::dpi::PhysicalSize<u32>,
+}
+
+impl<'a> Screen<'a> {
+    async fn new(window: &'a Window) -> Self {
+        let size = window.inner_size();
+
+        // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
+        // The instance is a handle to our GPU
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            #[cfg(not(target_arch = "wasm32"))]
+            backends: wgpu::Backends::PRIMARY,
+            #[cfg(target_arch = "wasm32")]
+            backends: wgpu::Backends::GL,
+            ..Default::default()
+        });
+        let surface = instance.create_surface(window).unwrap();
+
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::default(),
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            })
+            .await
+            .unwrap();
+
+        let surface_caps = surface.get_capabilities(&adapter);
+        // Shader code in this tutorial assumes an sRGB surface texture. Using a different
+        // one will result in all the colors coming out darker. If you want to support non
+        // sRGB surfaces, you'll need to account for that when drawing to the frame.
+        let surface_format = surface_caps
+            .formats
+            .iter()
+            .find(|f| f.is_srgb())
+            .copied()
+            .unwrap_or(surface_caps.formats[0]);
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: surface_format,
+            width: size.width,
+            height: size.height,
+            present_mode: surface_caps.present_modes[0],
+            alpha_mode: surface_caps.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    required_limits: if cfg!(target_arch = "wasm32") {
+                        wgpu::Limits::downlevel_webgl2_defaults()
+                    } else {
+                        wgpu::Limits::default()
+                    },
+                    ..Default::default()
+                },
+                None,
+            )
+            .await
+            .unwrap();
+        Screen {
+            surface,
+            device,
+            queue,
+            config,
+            size,
+        }
+    }
+    pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+        if new_size.width > 0 && new_size.height > 0 {
+            self.size = new_size;
+            self.config.width = new_size.width;
+            self.config.height = new_size.height;
+            self.surface.configure(&self.device, &self.config);
+        }
+    }
+
+    pub fn reset_size(&mut self) {
+        self.resize(self.size)
+    }
+}
+
 struct State<'a> {
-    surface: wgpu::Surface<'a>,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    config: wgpu::SurfaceConfiguration,
-    size: winit::dpi::PhysicalSize<u32>,
+    screen: Screen<'a>,
+    // surface: wgpu::Surface<'a>,
+    // device: wgpu::Device,
+    // queue: wgpu::Queue,
+    // config: wgpu::SurfaceConfiguration,
     active_pipeline: RenderPipeline,
     // bench_pipeline: RenderPipeline,
     vertex_buffer: wgpu::Buffer,
@@ -128,94 +217,46 @@ fn mk_pipeline<'a>(
 impl<'a> State<'a> {
     // Creating some of the wgpu types requires async code
     async fn new(window: &'a Window) -> State<'a> {
-        let size = window.inner_size();
-
-        // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
-        // The instance is a handle to our GPU
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            #[cfg(not(target_arch = "wasm32"))]
-            backends: wgpu::Backends::PRIMARY,
-            #[cfg(target_arch = "wasm32")]
-            backends: wgpu::Backends::GL,
-            ..Default::default()
-        });
-        let surface = instance.create_surface(window).unwrap();
-
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            })
-            .await
-            .unwrap();
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    required_limits: if cfg!(target_arch = "wasm32") {
-                        wgpu::Limits::downlevel_webgl2_defaults()
-                    } else {
-                        wgpu::Limits::default()
-                    },
-                    ..Default::default()
-                },
-                None,
-            )
-            .await
-            .unwrap();
-
-        let surface_caps = surface.get_capabilities(&adapter);
-        // Shader code in this tutorial assumes an sRGB surface texture. Using a different
-        // one will result in all the colors coming out darker. If you want to support non
-        // sRGB surfaces, you'll need to account for that when drawing to the frame.
-        let surface_format = surface_caps
-            .formats
-            .iter()
-            .find(|f| f.is_srgb())
-            .copied()
-            .unwrap_or(surface_caps.formats[0]);
-        let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format,
-            width: size.width,
-            height: size.height,
-            present_mode: surface_caps.present_modes[0],
-            alpha_mode: surface_caps.alpha_modes[0],
-            view_formats: vec![],
-            desired_maximum_frame_latency: 2,
-        };
         // surface.configure(&device, &config);
+        let screen = Screen::new(window).await;
 
         let diffuse_bytes = include_bytes!("../assets/happy-tree.png");
-        let diffuse_texture =
-            texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree").unwrap(); // CHANGED!
+        let diffuse_texture = texture::Texture::from_bytes(
+            &screen.device,
+            &screen.queue,
+            diffuse_bytes,
+            "happy-tree",
+        )
+        .unwrap(); // CHANGED!
 
         let texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            screen
+                .device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                multisampled: false,
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            },
+                            count: None,
                         },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        // This should match the filterable field of the
-                        // corresponding Texture entry above.
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-                label: Some("texture_bind_group_layout"),
-            });
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            // This should match the filterable field of the
+                            // corresponding Texture entry above.
+                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                            count: None,
+                        },
+                    ],
+                    label: Some("texture_bind_group_layout"),
+                });
 
-        let diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let diffuse_bind_group = screen.device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &texture_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -230,11 +271,13 @@ impl<'a> State<'a> {
             label: Some("diffuse_bind_group"),
         });
 
-        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
+        let shader = screen
+            .device
+            .create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
 
         let color_target = [Some(wgpu::ColorTargetState {
             // 4.
-            format: config.format,
+            format: screen.config.format,
             blend: Some(wgpu::BlendState::REPLACE),
             write_mask: wgpu::ColorWrites::ALL,
         })];
@@ -246,8 +289,8 @@ impl<'a> State<'a> {
             contents: bytemuck::cast_slice(VERTICES),
             usage: BufferUsages::VERTEX,
         };
-        let vertex_buffer = device.create_buffer_init(&buffer_desc);
-        let index_buffer = device.create_buffer_init(&BufferInitDescriptor {
+        let vertex_buffer = screen.device.create_buffer_init(&buffer_desc);
+        let index_buffer = screen.device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Index Buffer"),
             contents: bytemuck::cast_slice(INDICES),
             usage: BufferUsages::INDEX,
@@ -257,7 +300,7 @@ impl<'a> State<'a> {
             eye: [0.0, 1.0, 2.0].into(),
             target: [0.0, 0.0, 0.0].into(),
             up: Vec3::y(),
-            aspect: config.width as f32 / config.height as f32,
+            aspect: screen.config.width as f32 / screen.config.height as f32,
             fovy: 45.0,
             znear: 0.1,
             zfar: 100.0,
@@ -265,27 +308,29 @@ impl<'a> State<'a> {
         let mut camera_uniform = CameraUniform::default();
         camera_uniform.update(&camera);
         let camera_ctrl = CameraController::new(0.2, camera);
-        let camera_buffer = device.create_buffer_init(&BufferInitDescriptor {
+        let camera_buffer = screen.device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Camera Buffer"),
             contents: bytemuck::cast_slice(&[camera_uniform]),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         });
 
         let camera_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-                label: Some("camera_bind_group_layout"),
-            });
-        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            screen
+                .device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                    label: Some("camera_bind_group_layout"),
+                });
+        let camera_bind_group = screen.device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &camera_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
@@ -294,22 +339,20 @@ impl<'a> State<'a> {
             label: Some("camera_bind_group"),
         });
 
-        let render_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[&texture_bind_group_layout, &camera_bind_group_layout],
-            push_constant_ranges: &[],
-        });
+        let render_layout = screen
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[&texture_bind_group_layout, &camera_bind_group_layout],
+                push_constant_ranges: &[],
+            });
 
         let main_desc = mk_pipeline(&shader, &render_layout, &color_target, "vs_main", buffers);
-        let main_pipeline = device.create_render_pipeline(&main_desc);
+        let main_pipeline = screen.device.create_render_pipeline(&main_desc);
 
         Self {
             // window,
-            surface,
-            device,
-            queue,
-            config,
-            size,
+            screen,
             active_pipeline: main_pipeline,
             // bench_pipeline: rainbow_pipeline,
             vertex_buffer,
@@ -327,15 +370,6 @@ impl<'a> State<'a> {
     //     &self.window
     // }
 
-    fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
-        if new_size.width > 0 && new_size.height > 0 {
-            self.size = new_size;
-            self.config.width = new_size.width;
-            self.config.height = new_size.height;
-            self.surface.configure(&self.device, &self.config);
-        }
-    }
-
     /// returns true if mutation happens
     fn input(&mut self, event: &WindowEvent) -> bool {
         self.camera_ctrl.process_events(event)
@@ -344,7 +378,7 @@ impl<'a> State<'a> {
     fn update(&mut self, dt: f32) {
         self.camera_ctrl.update_camera(dt);
         self.camera_uniform.update(&self.camera_ctrl.camera);
-        self.queue.write_buffer(
+        self.screen.queue.write_buffer(
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
@@ -357,7 +391,7 @@ impl<'a> State<'a> {
 
     fn redraw(&mut self, ctrl_flow: &EventLoopWindowTarget<()>) {
         {
-            if self.config.width == 0 || self.config.height == 0 {
+            if self.screen.config.width == 0 || self.screen.config.height == 0 {
                 info!("ignoring input until window size has been configured");
                 return;
             }
@@ -366,7 +400,7 @@ impl<'a> State<'a> {
             match self.render() {
                 Ok(_) => {}
                 // Reconfigure the surface if lost
-                Err(wgpu::SurfaceError::Lost) => self.resize(self.size),
+                Err(wgpu::SurfaceError::Lost) => self.screen.reset_size(),
                 // The system is out of memory, we should probably quit
                 Err(wgpu::SurfaceError::OutOfMemory) => {
                     ctrl_flow.exit();
@@ -383,15 +417,16 @@ impl<'a> State<'a> {
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        let output = self.surface.get_current_texture()?;
+        let output = self.screen.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor {
             ..Default::default()
         });
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Render Encoder"),
-            });
+        let mut encoder =
+            self.screen
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Render Encoder"),
+                });
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -419,7 +454,7 @@ impl<'a> State<'a> {
         render_pass.draw_indexed(0..self.n_inds(), 0, 0..1); // 3.
         drop(render_pass);
 
-        self.queue.submit(std::iter::once(encoder.finish()));
+        self.screen.queue.submit(std::iter::once(encoder.finish()));
         output.present();
         Ok(())
     }
@@ -479,7 +514,7 @@ pub async fn run() {
             match event {
                 WindowEvent::Resized(new_size) => {
                     info!("window resized to: {:#?}", new_size);
-                    state.resize(new_size)
+                    state.screen.resize(new_size)
                 }
                 WindowEvent::RedrawRequested => {
                     state.redraw(control_flow);
