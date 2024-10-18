@@ -1,10 +1,13 @@
 // Vertex shader
-struct CameraUniform {
+struct TransformU {
     transform: mat4x4<f32>,
 };
 
-@group(1) @binding(0) // 1.
-var<uniform> camera: CameraUniform;
+@group(1) @binding(0)
+var<uniform> camera: TransformU;
+
+@group(2) @binding(0) 
+var<uniform> model_iso: TransformU;
 
 struct VertexInput {
     /// model coord

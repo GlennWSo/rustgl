@@ -9,13 +9,13 @@ use log::info;
 use nalgebra::UnitQuaternion;
 use screen::Screen;
 use wgpu::{
-    util::{BufferInitDescriptor, DeviceExt as _},
+    util::{BufferInitDescriptor, DeviceExt as _, RenderEncoder},
     BindGroup, BindGroupLayout, BufferUsages, PipelineCompilationOptions, PipelineLayout,
     RenderPipeline, ShaderModule, Texture, VertexAttribute, VertexBufferLayout,
 };
 use winit::{
     event::*,
-    event_loop::{EventLoop, EventLoopWindowTarget},
+    event_loop::{self, ControlFlow, EventLoop, EventLoopWindowTarget},
     keyboard::{Key, NamedKey},
     window::{Window, WindowBuilder},
 };
@@ -140,16 +140,17 @@ struct Isometry {
 }
 impl Isometry {
     fn translation(&self) -> Mat4 {
-        let mut mat4 = Mat4::zeros();
+        let mut mat4 = Mat4::identity();
         mat4[(0, 3)] = self.position[0];
         mat4[(1, 3)] = self.position[1];
         mat4[(2, 3)] = self.position[2];
-        mat4[(3, 3)] = 1.0;
         mat4
     }
     fn to_matrix(&self) -> Mat4 {
         let rot = self.rotation.to_homogeneous();
-        self.translation() * rot
+        // dbg!(UnitQuaternion::<f32>::identity());
+        // dbg!(self.rotation);
+        dbg!(self.translation() * rot)
     }
 }
 
@@ -189,7 +190,7 @@ impl<'a> State<'a> {
         // let mut camera_uniform = Mat4Uniform::default();
         // camera_uniform.update(&camera);
         let camera_uniform: Mat4Uniform = camera.view_projection().into();
-        let camera_ctrl = CameraController::new(0.2, camera);
+        let camera_ctrl = CameraController::new(1.0, camera);
         let camera_buffer = screen.device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Camera Buffer"),
             contents: bytemuck::cast_slice(&[camera_uniform]),
@@ -259,7 +260,11 @@ impl<'a> State<'a> {
                 .device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Render Pipeline Layout"),
-                    bind_group_layouts: &[&texture_bind_group_layout, &camera_bind_group_layout],
+                    bind_group_layouts: &[
+                        &texture_bind_group_layout,
+                        &camera_bind_group_layout,
+                        &iso_group_layout,
+                    ],
                     push_constant_ranges: &[],
                 });
 
@@ -322,14 +327,14 @@ impl<'a> State<'a> {
         VERTICES.len() as u32
     }
 
-    fn redraw(&mut self, ctrl_flow: &EventLoopWindowTarget<()>) {
+    fn redraw(&mut self, ctrl_flow: &EventLoopWindowTarget<()>, dt: f32) {
         {
             if self.screen.config.width == 0 || self.screen.config.height == 0 {
                 info!("ignoring input until window size has been configured");
                 return;
             }
             // info!("redraw requested");
-            self.update(1.0);
+            self.update(dt);
             match self.render() {
                 Ok(_) => {}
                 // Reconfigure the surface if lost
@@ -382,6 +387,8 @@ impl<'a> State<'a> {
         render_pass.set_pipeline(&self.active_pipeline);
         render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
         render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+        render_pass.set_bind_group(2, &self.iso_bind_group, &[]);
+
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
         render_pass.draw_indexed(0..self.n_inds(), 0, 0..1); // 3.
@@ -433,18 +440,36 @@ fn init() -> (EventLoop<()>, Window) {
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
 pub async fn run() {
-    let (event_loop, window) = init();
+    #[cfg(not(target_arch = "wasm32"))]
+    use std::time::{Duration, Instant};
+    #[cfg(target_arch = "wasm32")]
+    use web_time::{Duration, Instant};
+
+    let (mut event_loop, window) = init();
 
     let mut state = State::new(&window).await;
+    let window = &window;
+    let dt = 1.0 / 100.0; // secs
+                          // event_loop.set_control_flow(ControlFlow::Poll);
 
     event_loop
         .run(move |event, control_flow| {
-            let Event::WindowEvent {
-                window_id: _,
-                event,
-            } = event
-            else {
-                return;
+            let event = match event {
+                Event::WindowEvent {
+                    window_id: _,
+                    event,
+                } => event,
+                Event::AboutToWait => {
+                    let duration = Duration::from_millis((dt * 1000.0) as u64);
+                    let alarm = Instant::now() + duration;
+                    control_flow.set_control_flow(ControlFlow::WaitUntil(alarm));
+                    state.redraw(control_flow, dt);
+
+                    return;
+                }
+                _ => {
+                    return;
+                }
             };
 
             match event {
@@ -453,7 +478,9 @@ pub async fn run() {
                     state.screen.resize(new_size)
                 }
                 WindowEvent::RedrawRequested => {
-                    state.redraw(control_flow);
+                    state.redraw(control_flow, dt);
+                    // window.request_redraw();
+                    // window.set_control_flow();
                 }
                 WindowEvent::CloseRequested
                 | WindowEvent::KeyboardInput {
@@ -471,7 +498,7 @@ pub async fn run() {
                 event if state.input(&event) => {
                     dbg!(event);
                     dbg!(&state.camera_ctrl);
-                    state.redraw(control_flow)
+                    window.request_redraw();
                 }
                 _ => {}
             }
