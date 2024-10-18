@@ -43,11 +43,19 @@ impl PerspectiveCamera {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::NoUninit)]
-pub struct CameraUniform {
+pub struct Mat4Uniform {
     view_proj: [[f32; 4]; 4],
 }
 
-impl Default for CameraUniform {
+impl From<Mat4> for Mat4Uniform {
+    fn from(value: Mat4) -> Self {
+        Self {
+            view_proj: value.into(),
+        }
+    }
+}
+
+impl Default for Mat4Uniform {
     fn default() -> Self {
         Self {
             view_proj: Mat4::identity().into(),
@@ -55,10 +63,10 @@ impl Default for CameraUniform {
     }
 }
 
-impl CameraUniform {
-    pub fn update(&mut self, camera: &PerspectiveCamera) {
-        self.view_proj = camera.view_projection().into()
-    }
+impl Mat4Uniform {
+    // pub fn update(&mut self, camera: &PerspectiveCamera) {
+    //     self.view_proj = camera.view_projection().into()
+    // }
 }
 
 #[derive(Debug)]

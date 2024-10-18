@@ -4,8 +4,9 @@ mod texture;
 
 use std::mem::size_of;
 
-use camera::{CameraController, CameraUniform, PerspectiveCamera, Vec3};
+use camera::{CameraController, Mat4, Mat4Uniform, PerspectiveCamera, Vec3};
 use log::info;
+use nalgebra::UnitQuaternion;
 use screen::Screen;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt as _},
@@ -79,9 +80,14 @@ struct State<'a> {
     diffuse_bind_group: BindGroup,
     diffuse_texture: texture::Texture,
     camera_ctrl: CameraController,
-    camera_uniform: CameraUniform,
+    camera_uniform: Mat4Uniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
+
+    iso1: Isometry,
+    // iso_uniform1: Mat4Uniform,
+    iso_buffer: wgpu::Buffer,
+    iso_bind_group: wgpu::BindGroup,
 }
 
 fn mk_pipeline<'a>(
@@ -126,6 +132,27 @@ fn mk_pipeline<'a>(
     }
 }
 
+/// rot first, then translate
+#[derive(Default)]
+struct Isometry {
+    position: Vec3,
+    rotation: UnitQuaternion<f32>,
+}
+impl Isometry {
+    fn translation(&self) -> Mat4 {
+        let mut mat4 = Mat4::zeros();
+        mat4[(0, 3)] = self.position[0];
+        mat4[(1, 3)] = self.position[1];
+        mat4[(2, 3)] = self.position[2];
+        mat4[(3, 3)] = 1.0;
+        mat4
+    }
+    fn to_matrix(&self) -> Mat4 {
+        let rot = self.rotation.to_homogeneous();
+        self.translation() * rot
+    }
+}
+
 impl<'a> State<'a> {
     // Creating some of the wgpu types requires async code
     async fn new(window: &'a Window) -> State<'a> {
@@ -137,13 +164,6 @@ impl<'a> State<'a> {
         let shader = screen
             .device
             .create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
-
-        let color_target = [Some(wgpu::ColorTargetState {
-            // 4.
-            format: screen.config.format,
-            blend: Some(wgpu::BlendState::REPLACE),
-            write_mask: wgpu::ColorWrites::ALL,
-        })];
 
         let buffer_desc = BufferInitDescriptor {
             label: Some("Vertex Buffer"),
@@ -166,8 +186,9 @@ impl<'a> State<'a> {
             znear: 0.1,
             zfar: 100.0,
         };
-        let mut camera_uniform = CameraUniform::default();
-        camera_uniform.update(&camera);
+        // let mut camera_uniform = Mat4Uniform::default();
+        // camera_uniform.update(&camera);
+        let camera_uniform: Mat4Uniform = camera.view_projection().into();
         let camera_ctrl = CameraController::new(0.2, camera);
         let camera_buffer = screen.device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Camera Buffer"),
@@ -199,6 +220,40 @@ impl<'a> State<'a> {
             }],
             label: Some("camera_bind_group"),
         });
+
+        let iso = Isometry::default();
+        let iso_uniform: Mat4Uniform = iso.to_matrix().into();
+        let iso_buffer = screen.device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Transform Buffer"),
+            contents: bytemuck::cast_slice(&[iso_uniform]),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        });
+
+        let iso_group_layout =
+            screen
+                .device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                    label: Some("iso_group_layout"),
+                });
+        let iso_bind_group = screen.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &iso_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            }],
+            label: Some("camera_bind_group"),
+        });
+
         let pipeline_layout =
             screen
                 .device
@@ -209,10 +264,16 @@ impl<'a> State<'a> {
                 });
 
         let vertex_layout = &[Vertex::desc()];
+        let frag_color_target = [Some(wgpu::ColorTargetState {
+            // 4.
+            format: screen.config.format,
+            blend: Some(wgpu::BlendState::REPLACE),
+            write_mask: wgpu::ColorWrites::ALL,
+        })];
         let main_desc = mk_pipeline(
             &shader,
             &pipeline_layout,
-            &color_target,
+            &frag_color_target,
             "vs_main",
             vertex_layout,
         );
@@ -231,6 +292,9 @@ impl<'a> State<'a> {
             camera_uniform,
             camera_buffer,
             camera_bind_group,
+            iso1: iso,
+            iso_buffer,
+            iso_bind_group,
         }
     }
 
@@ -245,7 +309,7 @@ impl<'a> State<'a> {
 
     fn update(&mut self, dt: f32) {
         self.camera_ctrl.update_camera(dt);
-        self.camera_uniform.update(&self.camera_ctrl.camera);
+        self.camera_uniform = self.camera_ctrl.camera.view_projection().into();
         self.screen.queue.write_buffer(
             &self.camera_buffer,
             0,
