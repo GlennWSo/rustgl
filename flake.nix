@@ -36,6 +36,10 @@
       ./Cargo.lock
       ./Cargo.toml
     ];
+    src = fs.toSource {
+      root = ./.;
+      fileset = files;
+    };
 
     wasmFiles = fs.unions [
       ./www
@@ -121,6 +125,19 @@
       gtk3
     ];
     LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath nixRuntime;
+    cargoArtifacts = craneLib.buildDepsOnly {
+      src = src;
+      doCheck = false;
+    };
+    nativeBuild = craneLib.buildPackage {
+      inherit cargoArtifacts src;
+      buildInputs = nixRuntime;
+      nativeBuildInputs = [pkgs.makeWrapper];
+      postFixup = ''
+        wrapProgram $out/bin/rustgl --set LD_LIBRARY_PATH ${LD_LIBRARY_PATH}
+      '';
+      doCheck = false;
+    };
     car = pkgs.writeScriptBin "car" ''
       LD_LIBRARY_PATH=${LD_LIBRARY_PATH} cargo $@
     '';
@@ -134,13 +151,13 @@
       ${pkgs.static-server}/bin/static-server ${webSite}/bin/
     '';
   in {
-    packages.${system} = {
-      hello = pkgs.hello;
-      default = self.packages.x86_64-linux.hello;
+    packages.${system} = rec {
+      default = nixServe;
       wasmDeps = devArtifacts;
       devSite = devSite;
       web = webSite;
       serve = nixServe;
+      native = nativeBuild;
     };
     devShells.${system}.default = pkgs.mkShell {
       buildInputs = with pkgs; [

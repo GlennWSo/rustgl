@@ -5,7 +5,7 @@ mod texture;
 use std::{borrow::BorrowMut, cell::OnceCell, mem::size_of};
 
 use camera::{CameraController, Mat4, Mat4Uniform, PerspectiveCamera, Vec3};
-use log::info;
+use log::{error, info};
 use nalgebra::UnitQuaternion;
 use screen::Screen;
 use wgpu::{
@@ -157,7 +157,7 @@ impl Isometry {
         let rot = self.rotation.to_homogeneous();
         // dbg!(UnitQuaternion::<f32>::identity());
         // dbg!(self.rotation);
-        dbg!(self.translation() * rot)
+        self.translation() * rot
     }
 }
 
@@ -328,11 +328,11 @@ impl<'a> State<'a> {
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
-        let angles = Vec3::new(dt * 2.0, dt * 0.5, dt * 1.0);
-        // let angles = Vec3::new(0.0, 0.0, dt);
+        // let angles = Vec3::new(dt * 2.0, dt * 0.5, dt * 1.0);
+        let angles = Vec3::new(0.0, 0.0, dt);
         self.iso1.rotation = self.iso1.rotation.append_axisangle_linearized(&angles);
         let time = self.start.elapsed().as_secs_f32();
-        self.iso1.position += 0.002 * Vec3::repeat(time.cos());
+        self.iso1.position += dt * 0.1 * Vec3::repeat(time.cos());
         let iso_uniform: Mat4Uniform = self.iso1.to_matrix().into();
         self.screen
             .queue
@@ -358,11 +358,12 @@ impl<'a> State<'a> {
                 Err(wgpu::SurfaceError::Lost) => self.screen.reset_size(),
                 // The system is out of memory, we should probably quit
                 Err(wgpu::SurfaceError::OutOfMemory) => {
+                    error!("error: {:#?}", wgpu::SurfaceError::OutOfMemory);
                     ctrl_flow.exit();
                     // control_flow.exit();
                 }
                 // All other errors (Outdated, Timeout) should be resolved by the next frame
-                Err(e) => eprintln!("{:?}", e),
+                Err(e) => error!("{:?}", e),
             }
         }
     }
@@ -439,7 +440,6 @@ fn init() -> (EventLoop<()>, Window) {
         // Winit prevents sizing with CSS, so we have to set
         // the size manually when on web.
         use winit::dpi::PhysicalSize;
-        let _size = window.request_inner_size(PhysicalSize::new(900, 600));
 
         use winit::platform::web::WindowExtWebSys;
         web_sys::window()
@@ -451,6 +451,7 @@ fn init() -> (EventLoop<()>, Window) {
                 Some(())
             })
             .expect("Couldn't append canvas to document body.");
+        let _size = window.request_inner_size(PhysicalSize::new(900, 600));
     }
     (event_loop, window)
 }
@@ -462,22 +463,20 @@ pub async fn run() {
     let mut state = State::new(&window).await;
     let window = &window;
     let dt = 1.0 / 100.0; // secs
-                          // event_loop.set_control_flow(ControlFlow::Poll);
+    event_loop.set_control_flow(ControlFlow::Poll);
 
     // let now = Instant::now();
+    let mut old = Instant::now();
     event_loop
         .run(move |event, control_flow| {
+            // println!("event: {:#?}", event);
             let event = match event {
                 Event::WindowEvent {
                     window_id: _,
                     event,
                 } => event,
                 Event::AboutToWait => {
-                    let duration = Duration::from_millis((dt * 1000.0) as u64);
-                    let alarm = Instant::now() + duration;
-                    control_flow.set_control_flow(ControlFlow::WaitUntil(alarm));
-                    state.redraw(control_flow, dt);
-
+                    window.request_redraw();
                     return;
                 }
                 _ => {
@@ -491,9 +490,10 @@ pub async fn run() {
                     state.screen.resize(new_size)
                 }
                 WindowEvent::RedrawRequested => {
-                    state.redraw(control_flow, dt);
-                    // window.request_redraw();
-                    // window.set_control_flow();
+                    let delta = Instant::now() - old;
+                    info!("{:?}", delta);
+                    old += delta;
+                    state.redraw(control_flow, delta.as_secs_f32());
                 }
                 WindowEvent::CloseRequested
                 | WindowEvent::KeyboardInput {
@@ -512,7 +512,9 @@ pub async fn run() {
                     dbg!(event);
                     dbg!(&state.camera_ctrl);
                 }
-                _ => {}
+                event => {
+                    info!("{:#?}", event);
+                }
             }
         })
         .unwrap()
