@@ -2,7 +2,7 @@ mod camera;
 mod screen;
 mod texture;
 
-use std::mem::size_of;
+use std::{borrow::BorrowMut, cell::OnceCell, mem::size_of};
 
 use camera::{CameraController, Mat4, Mat4Uniform, PerspectiveCamera, Vec3};
 use log::info;
@@ -19,6 +19,12 @@ use winit::{
     keyboard::{Key, NamedKey},
     window::{Window, WindowBuilder},
 };
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::{Duration, Instant};
+#[cfg(target_arch = "wasm32")]
+use web_time::{Duration, Instant};
+
 type Position = [f32; 3];
 type TexCoord = [f32; 2];
 
@@ -68,6 +74,7 @@ const INDICES: &[u16] = &[
 struct TextureBundle {}
 
 struct State<'a> {
+    start: Instant,
     screen: Screen<'a>,
     // surface: wgpu::Surface<'a>,
     // device: wgpu::Device,
@@ -223,7 +230,7 @@ impl<'a> State<'a> {
         });
 
         let iso = Isometry::default();
-        let iso_uniform: Mat4Uniform = iso.to_matrix().into();
+        let iso_uniform: Mat4Uniform = (iso.to_matrix() * 3.0).into();
         let iso_buffer = screen.device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Transform Buffer"),
             contents: bytemuck::cast_slice(&[iso_uniform]),
@@ -250,7 +257,7 @@ impl<'a> State<'a> {
             layout: &iso_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: camera_buffer.as_entire_binding(),
+                resource: iso_buffer.as_entire_binding(),
             }],
             label: Some("camera_bind_group"),
         });
@@ -285,6 +292,7 @@ impl<'a> State<'a> {
         let main_pipeline = screen.device.create_render_pipeline(&main_desc);
 
         Self {
+            start: Instant::now(),
             // window,
             screen,
             active_pipeline: main_pipeline,
@@ -320,6 +328,15 @@ impl<'a> State<'a> {
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
+        let angles = Vec3::new(dt * 2.0, dt * 0.5, dt * 1.0);
+        // let angles = Vec3::new(0.0, 0.0, dt);
+        self.iso1.rotation = self.iso1.rotation.append_axisangle_linearized(&angles);
+        let time = self.start.elapsed().as_secs_f32();
+        self.iso1.position += 0.002 * Vec3::repeat(time.cos());
+        let iso_uniform: Mat4Uniform = self.iso1.to_matrix().into();
+        self.screen
+            .queue
+            .write_buffer(&self.iso_buffer, 0, bytemuck::cast_slice(&[iso_uniform]));
     }
 
     #[allow(dead_code)]
@@ -440,11 +457,6 @@ fn init() -> (EventLoop<()>, Window) {
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
 pub async fn run() {
-    #[cfg(not(target_arch = "wasm32"))]
-    use std::time::{Duration, Instant};
-    #[cfg(target_arch = "wasm32")]
-    use web_time::{Duration, Instant};
-
     let (mut event_loop, window) = init();
 
     let mut state = State::new(&window).await;
@@ -452,6 +464,7 @@ pub async fn run() {
     let dt = 1.0 / 100.0; // secs
                           // event_loop.set_control_flow(ControlFlow::Poll);
 
+    // let now = Instant::now();
     event_loop
         .run(move |event, control_flow| {
             let event = match event {
@@ -498,7 +511,6 @@ pub async fn run() {
                 event if state.input(&event) => {
                     dbg!(event);
                     dbg!(&state.camera_ctrl);
-                    window.request_redraw();
                 }
                 _ => {}
             }

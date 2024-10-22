@@ -24,7 +24,8 @@ struct VertexOutput {
 fn vs_main(model: VertexInput) -> VertexOutput {
     var out: VertexOutput;
     out.tex_coords = vec2f(model.tex_coords.x, 1.0 - model.tex_coords.y);
-    out.clip_position = camera.transform * vec4f(model.position, 1.0);
+    out.clip_position = model_iso.transform * camera.transform *  vec4f(model.position, 1.0);
+    out.clip_position.z = 0.5;
     return out;
 }
 
